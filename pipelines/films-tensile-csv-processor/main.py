@@ -181,10 +181,10 @@ def process_gcs_event(event, context=None):
         logger.error("Missing bucket/name in event", extra={"event": str(event)})
         return
 
-    logger.info("Event received", extra={"bucket": bucket, "name": name})
+    logger.info("Event received", extra={"bucket": bucket, "object_name": name})
 
     if not should_process(name):
-        logger.info("Skipping (not in watch scope)", extra={"bucket": bucket, "name": name})
+        logger.info("Skipping (not in watch scope)", extra={"bucket": bucket, "object_name": name})
         return
 
     storage_client = storage.Client(project=PROJECT_ID)
