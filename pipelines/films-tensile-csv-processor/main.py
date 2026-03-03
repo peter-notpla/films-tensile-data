@@ -102,9 +102,13 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFra
 
     out["timestamp_start"] = pd.to_datetime(
         df.get("Timestamp - Start ", ""),
-        format="%d/%m/%Y %H:%M",
+        format="%d/%m/%Y %H:%M:%S",
         errors="raise"
     )
+
+
+
+
 
     out["pellet_id"] = df.get("Pellet ID (Prompt For Value - Before Test)", "").astype(str)
     out["extrusion_id"] = df.get("Extrusion ID (Prompt For Value - Before Test)", "").astype(str)
