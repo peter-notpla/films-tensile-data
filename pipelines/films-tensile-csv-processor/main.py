@@ -102,7 +102,7 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFra
 
     out["timestamp_start"] = pd.to_datetime(
         df.get("Timestamp - Start ", ""),
-        format="%d/%m/%Y %H:%M:%S",
+        format="%Y-%m-%d %H:%M:%S",
         errors="raise"
     )
 
