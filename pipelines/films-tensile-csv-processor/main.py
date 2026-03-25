@@ -104,6 +104,13 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFra
 
     out["timestamp_start"] = pd.to_datetime(
         ts_raw,
+        format="%Y-%m-%d %H:%M:%S",
+        errors="coerce"
+    )
+
+    mask = out["timestamp_start"].isna() & ts_raw.ne("")
+    out.loc[mask, "timestamp_start"] = pd.to_datetime(
+        ts_raw[mask],
         format="%d/%m/%Y %H:%M:%S",
         errors="coerce"
     )
