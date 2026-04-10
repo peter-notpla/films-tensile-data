@@ -9,7 +9,7 @@ from google.cloud import bigquery
 from google.cloud import storage
 
 
-def gcs_csv_to_bigquery(cloud_event):
+def gcs_csv_to_bigquery(data, context):
     PROJECT_ID = os.environ["PROJECT_ID"]
     BQ_DATASET = os.environ["BQ_DATASET"]
     BQ_TABLE = os.environ["BQ_TABLE"]
@@ -43,7 +43,6 @@ def gcs_csv_to_bigquery(cloud_event):
                 continue
         raise ValueError(f"Unsupported timestamp: {text}")
 
-    data = cloud_event.data
     bucket_name = data["bucket"]
     blob_name = data["name"]
 
