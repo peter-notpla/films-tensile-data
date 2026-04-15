@@ -59,12 +59,15 @@ def parse_curve_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFrame:
         "Stress (MPa)",
         "Strain (%)",
     ]
+
     missing = [c for c in expected if c not in df.columns]
     if missing:
         raise ValueError(f"Missing expected columns: {missing}. Found columns: {list(df.columns)}")
 
     out = pd.DataFrame()
-    out["sample"] = extract_sample_from_filename(source_file)
+    sample = extract_sample_from_filename(source_file)
+
+    out["sample"] = sample
     out["time_s"] = pd.to_numeric(df["Time (s)"], errors="coerce")
     out["load_n"] = pd.to_numeric(df["Load (N)"], errors="coerce")
     out["displacement_mm"] = pd.to_numeric(df["Displacement (mm)"], errors="coerce")
@@ -73,9 +76,14 @@ def parse_curve_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFrame:
     out["source_file"] = source_file
     out["processed_at"] = datetime.now(timezone.utc)
 
-    out = out.dropna(subset=["time_s", "load_n", "displacement_mm", "stress_mpa", "strain_pct"], how="all")
+    # Drop rows where all numeric fields failed
+    out = out.dropna(
+        subset=["time_s", "load_n", "displacement_mm", "stress_mpa", "strain_pct"],
+        how="all"
+    )
+
     if out.empty:
-        raise ValueError("No numeric curve rows found after parsing")
+        raise ValueError("No valid numeric rows found")
 
     return out
 
@@ -83,19 +91,6 @@ def parse_curve_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFrame:
 def load_to_bigquery(df: pd.DataFrame) -> int:
     client = bigquery.Client(project=PROJECT_ID)
     table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
-
-    df = df[
-        [
-            "sample",
-            "time_s",
-            "load_n",
-            "displacement_mm",
-            "stress_mpa",
-            "strain_pct",
-            "source_file",
-            "processed_at",
-        ]
-    ].copy()
 
     job = client.load_table_from_dataframe(
         df,
@@ -105,26 +100,24 @@ def load_to_bigquery(df: pd.DataFrame) -> int:
         ),
     )
     job.result()
+
     return len(df)
 
 
 def move_blob(bucket_name: str, source_name: str, dest_name: str) -> None:
     storage_client = storage.Client(project=PROJECT_ID)
     bucket = storage_client.bucket(bucket_name)
+
     blob = bucket.blob(source_name)
     bucket.copy_blob(blob, bucket, new_name=dest_name)
     blob.delete()
 
 
 def process_gcs_event(event, context=None):
-    bucket = event.get("bucket") if isinstance(event, dict) else None
-    name = event.get("name") if isinstance(event, dict) else None
+    bucket = event.get("bucket")
+    name = event.get("name")
 
-    if not bucket or not name:
-        print(f"Missing bucket/name in event: {event}")
-        return
-
-    print(f"Event received for {name}")
+    print(f"Event received: {name}")
 
     if not should_process(name):
         print(f"Skipping (not in watch scope): {name}")
@@ -135,6 +128,7 @@ def process_gcs_event(event, context=None):
 
     try:
         csv_bytes = blob.download_as_bytes()
+
         df = parse_curve_dataframe(csv_bytes, source_file=name)
         rows = load_to_bigquery(df)
 
@@ -142,14 +136,16 @@ def process_gcs_event(event, context=None):
         dest = f"{PROCESSED_PREFIX}{filename}"
         move_blob(bucket, name, dest)
 
-        print(f"Processed OK: {name}; rows_inserted={rows}; moved_to={dest}")
+        print(f"SUCCESS: {rows} rows inserted for sample {df['sample'].iloc[0]}")
 
-    except Exception as exc:
+    except Exception as e:
+        filename = name.split("/")[-1]
+        dest = f"{FAILED_PREFIX}{filename}"
+
         try:
-            filename = name.split("/")[-1]
-            dest = f"{FAILED_PREFIX}{filename}"
             move_blob(bucket, name, dest)
-            print(f"Processing failed for {name}; moved_to={dest}; error={exc}")
-        except Exception as move_exc:
-            print(f"Processing failed for {name}; also failed to move file; error={exc}; move_error={move_exc}")
+        except Exception as move_error:
+            print(f"Failed to move file after error: {move_error}")
+
+        print(f"FAILED: {name} error={e}")
         raise
