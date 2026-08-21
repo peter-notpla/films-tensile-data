@@ -18,6 +18,31 @@ FAILED_PREFIX = os.environ["FAILED_PREFIX"].strip("/")
 storage_client = storage.Client(project=PROJECT_ID)
 bq_client = bigquery.Client(project=PROJECT_ID)
 
+
+TABLE_COLUMNS = [
+    "trial_code", "date", "ingredients", "proportion", "batches", "pellet_id",
+    "extrusion_id", "time", "zone_1", "zone_2", "zone_3", "zone_4", "zone_5",
+    "zone_7", "zone_8", "zone_9", "zone_10", "zone_11", "screw_speed_rpm",
+    "amp_a", "torque_percent", "die_pressure_bar", "melt_temp_c",
+    "calender_set_temp_c", "calender_actual_temp_c", "calender_speed_m_min",
+    "middle_roller_speed_percent", "spooling_reel_torque_nm",
+    "left_film_thickness_1_mm", "film_thickness_2_mm", "film_thickness_3_mm",
+    "film_thickness_4_mm", "film_thickness_5_mm", "film_thickness_6_mm",
+    "film_thickness_7_mm", "film_thickness_8_mm", "film_thickness_9_mm",
+    "right_film_thickness_10_mm", "average_thickness_mm",
+    "sd_percent_variation", "left_film_thickness_1_end_mm",
+    "film_thickness_2_end_mm", "film_thickness_3_end_mm",
+    "film_thickness_4_end_mm", "film_thickness_5_end_mm",
+    "film_thickness_6_end_mm", "film_thickness_7_end_mm",
+    "film_thickness_8_end_mm", "film_thickness_9_end_mm",
+    "right_film_thickness_10_end_mm", "average_thickness_end_mm",
+    "sd_end", "percent_variation_end", "width_mm", "length_m",
+    "pellets_moisture_content_percent", "relative_humidity_percent",
+    "temperature_c", "comments", "key", "source_file", "processed_at",
+    "sd", "variation", "variation_end"
+]
+
+
 HEADER_MAP = {
     "Trial Code": "trial_code",
     "Date": "date",
@@ -38,16 +63,15 @@ HEADER_MAP = {
     "Zone 10": "zone_10",
     "Zone 11": "zone_11",
     "Screw speed (rpm)": "screw_speed_rpm",
-    "Amp \n(A)": "amp_a",
-    "Torque \n(%)": "torque_percent",
+    "Amp (A)": "amp_a",
+    "Torque (%)": "torque_percent",
     "Die pressure (bar)": "die_pressure_bar",
-    "Melt temp \n(°C)": "melt_temp_c",
-    "Calender Set Temp\n(°C)": "calender_set_temp_c",
-    "Calender Actual Temp\n(°C)": "calender_actual_temp_c",
+    "Melt temp (°C)": "melt_temp_c",
+    "Calender Set Temp (°C)": "calender_set_temp_c",
+    "Calender Actual Temp (°C)": "calender_actual_temp_c",
     "Calender Speed (m/min)": "calender_speed_m_min",
-    "Middle Roller Speed\n(%)": "middle_roller_speed_percent",
-    "Spooling Reel Torque\n(Nm)": "spooling_reel_torque_nm",
-
+    "Middle Roller Speed (%)": "middle_roller_speed_percent",
+    "Spooling Reel Torque (Nm)": "spooling_reel_torque_nm",
     "Left Film Thickness 1 (mm)": "left_film_thickness_1_mm",
     "Film Thickness 2 (mm)": "film_thickness_2_mm",
     "Film Thickness 3 (mm)": "film_thickness_3_mm",
@@ -60,6 +84,7 @@ HEADER_MAP = {
     "Right Film Thickness 10 (mm)": "right_film_thickness_10_mm",
     "Average Thickness (mm)": "average_thickness_mm",
     "SD": "sd",
+    "% Variation": "variation",
     "Variation": "variation",
     "Left Film Thickness 1 End (mm)": "left_film_thickness_1_end_mm",
     "Film Thickness 2 End (mm)": "film_thickness_2_end_mm",
@@ -73,58 +98,62 @@ HEADER_MAP = {
     "Right Film Thickness 10 End (mm)": "right_film_thickness_10_end_mm",
     "Average Thickness End (mm)": "average_thickness_end_mm",
     "SD End": "sd_end",
+    "% Variation End": "variation_end",
     "Variation End": "variation_end",
     "Width (mm)": "width_mm",
     "Length (m)": "length_m",
     "Pellets Moisture Content (%)": "pellets_moisture_content_percent",
-    "Relative Humidity \n(%)": "relative_humidity_percent",
-    "Temperature \n(°C)": "temperature_c",
+    "Relative Humidity (%)": "relative_humidity_percent",
+    "Temperature (°C)": "temperature_c",
     "Comments": "comments",
     "Key": "key",
 }
 
+# ---------------------------------------------------------------
+# ADDED 21 Aug 2026. Guards against ingesting files that are not
+# extrusion exports. See the checks in process_file().
+# ---------------------------------------------------------------
+IDENTITY_COLUMNS = ["trial_code", "pellet_id", "extrusion_id"]
+
+# The four real extrusion files map well over 40 columns each, so 10 is a
+# generous floor that admits a trimmed-down export while rejecting noise.
+MIN_MAPPED_COLUMNS = 10
+
+
 FLOAT_COLUMNS = [
-    "zone_1", "zone_2", "zone_3", "zone_4", "zone_5",
-    "zone_7", "zone_8", "zone_9", "zone_10", "zone_11",
-    "screw_speed_rpm", "amp_a", "torque_percent", "die_pressure_bar",
-    "melt_temp_c", "calender_set_temp_c", "calender_actual_temp_c",
-    "calender_speed_m_min", "middle_roller_speed_percent",
-    "spooling_reel_torque_nm",
-    "left_film_thickness_1_mm", "film_thickness_2_mm",
-    "film_thickness_3_mm", "film_thickness_4_mm",
-    "film_thickness_5_mm", "film_thickness_6_mm",
-    "film_thickness_7_mm", "film_thickness_8_mm",
-    "film_thickness_9_mm", "right_film_thickness_10_mm",
-    "average_thickness_mm", "sd",
-    "left_film_thickness_1_end_mm", "film_thickness_2_end_mm",
-    "film_thickness_3_end_mm", "film_thickness_4_end_mm",
-    "film_thickness_5_end_mm", "film_thickness_6_end_mm",
-    "film_thickness_7_end_mm", "film_thickness_8_end_mm",
-    "film_thickness_9_end_mm", "right_film_thickness_10_end_mm",
-    "average_thickness_end_mm", "sd_end",
-    "variation_end",
-    "width_mm", "length_m",
-    "pellets_moisture_content_percent",
-    "relative_humidity_percent", "temperature_c"
+    c for c in TABLE_COLUMNS
+    if c not in {"trial_code", "date", "ingredients", "proportion", "batches",
+                 "pellet_id", "extrusion_id", "time", "comments", "key",
+                 "source_file", "processed_at"}
 ]
 
-def clean_header(h):
-    if pd.isna(h):
-        return None
-    return str(h).strip()
+
+def normalize_header(value):
+    if pd.isna(value):
+        return ""
+    return " ".join(str(value).replace("\n", " ").split()).strip()
 
 
-def parse_date(val):
-    if pd.isna(val) or str(val).strip() == "":
-        return None
-    try:
-        return datetime.strptime(str(val).strip(), "%d/%m/%y").date()
-    except Exception:
+def parse_date(value):
+    if pd.isna(value) or str(value).strip() == "":
         return None
 
+    text = str(value).strip()
 
-def move_blob(bucket, blob_name, new_prefix):
-    bucket = storage_client.bucket(bucket)
+    for fmt in ("%d/%m/%y", "%d/%m/%Y", "%-d/%-m/%Y", "%-d/%-m/%y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+
+    parsed = pd.to_datetime(text, dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def move_blob(bucket_name, blob_name, new_prefix):
+    bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     new_name = f"{new_prefix}/{blob_name.split('/')[-1]}"
     bucket.copy_blob(blob, bucket, new_name)
@@ -153,43 +182,154 @@ def process_file(cloud_event):
         except UnicodeDecodeError:
             df = pd.read_csv(BytesIO(content), header=1, encoding="latin-1")
 
-        # Clean headers
-        df.columns = [clean_header(c) for c in df.columns]
+        # First processing step: drop columns whose row-2 header cell is empty.
+        df = df.loc[:, [
+            c is not None
+            and str(c).strip() != ""
+            and not str(c).startswith("Unnamed:")
+            for c in df.columns
+        ]]
 
-        # Drop empty columns
-        df = df.loc[:, [c is not None and not str(c).startswith("Unnamed:") for c in df.columns]]
+        # Normalize remaining headers.
+        df.columns = [normalize_header(c) for c in df.columns]
 
-        # Keep rows where Trial Code exists
-        df = df[df["Trial Code"].notna()]
+        # Second processing step: drop rows whose first cell / column A is empty.
+        first_col = df.columns[0]
+        df[first_col] = df[first_col].astype(str).str.strip()
+        df = df[
+            df[first_col].notna()
+            & (df[first_col] != "")
+            & (df[first_col].str.lower() != "nan")
+        ]
 
-        # Rename columns
+        # Rename known headers to BigQuery column names.
         df = df.rename(columns=HEADER_MAP)
 
-        # Parse date
-        if "date" in df.columns:
-            df["date"] = df["date"].apply(parse_date)
+        # ---------------------------------------------------------------
+        # ADDED 21 Aug 2026: required-column guard.
+        #
+        # Before this existed the parser accepted any CSV at all. A test file
+        # containing the literal text "NotAHeader,AlsoNot" was dropped to
+        # zero usable columns, padded out to all 64 table columns as NULL,
+        # loaded as one row, and logged as a success.
+        #
+        # Two checks, both cheap:
+        #   1. enough recognised headers to plausibly be an extrusion export
+        #   2. at least one identity column actually present in the source
+        #
+        # Raising here is what puts the file in the failed folder and sends
+        # the alert, which is the whole point of the restored failure path.
+        # ---------------------------------------------------------------
+        mapped = [c for c in df.columns if c in TABLE_COLUMNS]
+        if len(mapped) < MIN_MAPPED_COLUMNS:
+            raise ValueError(
+                f"Only {len(mapped)} recognised columns "
+                f"(need at least {MIN_MAPPED_COLUMNS}). "
+                f"This does not look like an extrusion export. "
+                f"Headers found: {list(df.columns)[:10]}"
+            )
 
-        # Cast floats safely
+        identity_present = [c for c in IDENTITY_COLUMNS if c in df.columns]
+        if not identity_present:
+            raise ValueError(
+                f"None of the identity columns {IDENTITY_COLUMNS} are present. "
+                f"Recognised columns: {mapped[:10]}"
+            )
+
+        # Drop ignored/unmapped columns, e.g. Pellets sample taken?
+        extra_columns = [c for c in df.columns if c not in TABLE_COLUMNS]
+        if extra_columns:
+            print(f"Dropping unmapped columns: {extra_columns}")
+        df = df[[c for c in df.columns if c in TABLE_COLUMNS]]
+
+        # Ensure all BigQuery table columns exist.
+        for col in TABLE_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+
+        # Parse dates.
+        df["date"] = df["date"].apply(parse_date)
+
+        # Cast numeric fields safely.
         for col in FLOAT_COLUMNS:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # Add metadata
+        # ---------------------------------------------------------------
+        # ADDED 20 Aug 2026. Optional: remove this block if you would rather
+        # keep the fix minimal. Leading and trailing spaces carry no
+        # information and are invisible in every UI, but they silently break
+        # joins and grouping. The extrusion table currently holds values like
+        # " AO 260701 LR 1379" which fail an exact-match lookup.
+        # ---------------------------------------------------------------
+        for col in ("trial_code", "pellet_id", "extrusion_id", "ingredients",
+                    "proportion", "batches", "time", "comments", "key"):
+            if col in df.columns:
+                df[col] = df[col].apply(
+                    lambda v: v.strip() if isinstance(v, str) else v
+                )
+
+        # Metadata.
         df["source_file"] = blob_name.split("/")[-1]
         df["processed_at"] = datetime.now(timezone.utc)
 
-        # Load to BigQuery
+        # ---------------------------------------------------------------
+        # ADDED 21 Aug 2026: drop rows with no identity at all. A row with no
+        # trial code, no pellet id and no extrusion id cannot be joined to
+        # anything and is not a usable record.
+        # ---------------------------------------------------------------
+        has_identity = False
+        for col in IDENTITY_COLUMNS:
+            col_filled = df[col].notna() & (df[col].astype(str).str.strip() != "")
+            has_identity = col_filled if has_identity is False else (has_identity | col_filled)
+
+        dropped = int((~has_identity).sum())
+        if dropped:
+            print(f"Dropping {dropped} row(s) with no trial code, pellet id or extrusion id")
+        df = df[has_identity]
+
+        if df.empty:
+            raise ValueError("No rows remain after removing rows with no identity")
+
+        # Reorder exactly to BigQuery schema.
+        df = df[TABLE_COLUMNS]
+
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
         job = bq_client.load_table_from_dataframe(df, table_id)
         job.result()
 
-        print("Load complete")
+        print(f"Loaded {len(df)} rows to {table_id}")
 
         move_blob(bucket_name, blob_name, PROCESSED_PREFIX)
 
-    except Exception as e:
-        print("Processing failed")
+    except Exception as exc:
+        # ---------------------------------------------------------------
+        # RESTORED 20 Aug 2026.
+        #
+        # The deployed version of this block printed the traceback and then
+        # returned normally. That meant a failed file was never moved to the
+        # failed folder, the function reported success to Eventarc, and the
+        # file stayed in to-be-processed where the uploader's blob.exists()
+        # check treated every future copy as a duplicate. Failures were
+        # completely invisible.
+        #
+        # The two behaviours below are what make a failure observable:
+        #   1. move the file so its location reflects its state
+        #   2. re-raise so Eventarc and Cloud Logging record an error
+        #
+        # Re-raising is safe here because the trigger uses
+        # RETRY_POLICY_DO_NOT_RETRY, so this will not loop.
+        # ---------------------------------------------------------------
+        print(f"EXTRUSION_PIPELINE_FAILURE file={blob_name} error={exc}")
         print(traceback.format_exc())
 
-        move_blob(bucket_name, blob_name, FAILED_PREFIX)
+        try:
+            if storage_client.bucket(bucket_name).blob(blob_name).exists():
+                move_blob(bucket_name, blob_name, FAILED_PREFIX)
+                print(f"Moved failed file to {FAILED_PREFIX}/{blob_name.split('/')[-1]}")
+            else:
+                print("Blob no longer exists, nothing to move")
+        except Exception as move_exc:
+            print(f"EXTRUSION_PIPELINE_FAILURE could not move to failed prefix: {move_exc}")
+            print(traceback.format_exc())
+
         raise
