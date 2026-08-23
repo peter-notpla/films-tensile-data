@@ -84,10 +84,34 @@ string**.
 Detection signatures for flagging: row 1 ending in comma padding, or every
 timestamp in a file having zero seconds.
 
-### ID formats
+### ID formats, decoded field by field
 
 - `pellet_id`: `^[A-Z]{2} [A-Z]{2} [A-Z]{2} [A-Z]{2} [0-9]{6} [A-Z]{2} [A-Z]{2} [0-9]{4}$`
 - `extrusion_id`: `^[A-Z]{2} [0-9]{6} [A-Z]{2} [0-9]{4}$`
+
+A full roll code is `pellet_id` + `extrusion_id` concatenated, e.g.
+`EV AB AL AM 260310 LI PF 1133 BA 260324 KM 1279`. Per-field meaning:
+
+| # | Field | Example | Meaning |
+|---|---|---|---|
+| 1 | 2 letters | `EV` | formulation ingredients |
+| 2 | 2 letters | `AB` | proportions of those ingredients |
+| 3 | 2 letters | `AL` | unique batch code |
+| 4 | 2 letters | `AM` | machine used for compounding |
+| 5 | 6 digits | `260310` | date of compounding, `YYMMDD` |
+| 6 | 2 letters | `LI` | process settings for compounding |
+| 7 | 2 letters | `PF` | product: `PF` = Pellet Films, `PR` = Pellet Rigids |
+| 8 | 4 digits | `1133` | unique identifier for the bag of pellets |
+| 9 | 2 letters | `BA` | machine used for cast film extrusion (PF only, Peter's focus) |
+| 10 | 6 digits | `260324` | date of extrusion, `YYMMDD` |
+| 11 | 2 letters | `KM` | extrusion processing code |
+| 12 | 4 digits | `1279` | unique identifier for the roll |
+
+Fields 1-8 are `pellet_id`, fields 9-12 are `extrusion_id`. Note field 8 (bag
+ID) and field 12 (roll ID) are both 4 digits but identify different things,
+which is the source of the 1264/1279 shorthand confusion in the Open item
+below: "1264" and "1279" there refer to field 8, the pellet bag ID, not the
+roll ID.
 
 **Flag, do not reject.** A hard gate would have discarded roughly 150
 legitimate rows from a one-off packaging study to catch 25 typos.
@@ -183,6 +207,28 @@ Genuine backlogs, deliberately untouched:
 
 ## Open item
 
-Samples 1383 to 1392 exist twice with two roll codes. Evidence favours
-`...PF 1264 / AO 260701 LR 1379`. Awaiting confirmation from whoever ran the
-test before the ten `1279`-labelled rows are deleted.
+Samples 1383 to 1392 (tested 4 August, 17:12-17:25) exist twice, each row
+carrying one of two candidate roll codes that disagree from field 8 onward
+(see ID decode table above):
+
+- **A**: pellet bag `1264`, extruded on machine `AO`, `2026-07-01`, process
+  `LR`, roll `1379`
+- **B**: pellet bag `1279`, extruded on machine `BD`, `2026-07-08`, process
+  `LT`, roll `1397`
+
+Measurements are identical either way, so this is one set of ten tests
+mislabelled two ways, not two different tests.
+
+Evidence favours **A** (bag 1264):
+- The extrusion table has bag/roll 1264 extruded 1 July at 117.7 microns
+  average thickness, matching the 96-118 micron range these ten specimens
+  measured
+- Bag 1279's roll (1397, extruded 8 July) was already correctly used for a
+  separate, later test batch: samples 1413-1422, tested 7 August. That roll
+  being reused as a label three days earlier looks like a copy/paste crossover
+  between two files open at once, not a real second extrusion event
+- The file carrying the `1279` label is on the Excel-affected list (seconds
+  dropped from timestamps); the file carrying `1264` is not
+
+Awaiting confirmation from whoever ran the 4 August test before the ten
+`1279`-labelled rows are deleted and the change logged.
