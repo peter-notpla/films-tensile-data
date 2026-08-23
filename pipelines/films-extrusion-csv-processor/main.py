@@ -1,4 +1,5 @@
 import os
+import hashlib
 import traceback
 from datetime import datetime, timezone
 from io import BytesIO
@@ -14,6 +15,10 @@ BQ_TABLE = os.environ["BQ_TABLE"]
 WATCH_PREFIX = os.environ["WATCH_PREFIX"].strip("/")
 PROCESSED_PREFIX = os.environ["PROCESSED_PREFIX"].strip("/")
 FAILED_PREFIX = os.environ["FAILED_PREFIX"].strip("/")
+
+MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
+PIPELINE_NAME = "extrusion"
+MACHINE_ID = "collin-e25e"
 
 storage_client = storage.Client(project=PROJECT_ID)
 bq_client = bigquery.Client(project=PROJECT_ID)
@@ -160,6 +165,29 @@ def move_blob(bucket_name, blob_name, new_prefix):
     blob.delete()
 
 
+def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
+                    rows_rejected, error_message):
+    """Best-effort manifest row. Never allowed to fail the pipeline run."""
+    try:
+        row = {
+            "pipeline": PIPELINE_NAME,
+            "source_file": source_file,
+            "checksum": checksum,
+            "machine_id": MACHINE_ID,
+            "status": status,
+            "rows_total": rows_total,
+            "rows_inserted": rows_inserted,
+            "rows_rejected": rows_rejected,
+            "error_message": error_message,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        errors = bq_client.insert_rows_json(MANIFEST_TABLE, [row])
+        if errors:
+            print(f"Manifest insert returned errors: {errors}")
+    except Exception as manifest_exc:
+        print(f"Manifest insert failed (pipeline result unaffected): {manifest_exc}")
+
+
 @functions_framework.cloud_event
 def process_file(cloud_event):
     data = cloud_event.data
@@ -172,10 +200,14 @@ def process_file(cloud_event):
         print("Skipping: outside watch folder")
         return
 
+    gcs_uri = f"gs://{bucket_name}/{blob_name}"
+    checksum = None
+
     try:
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
         content = blob.download_as_bytes()
+        checksum = hashlib.md5(content).hexdigest()
 
         try:
             df = pd.read_csv(BytesIO(content), header=1)
@@ -285,6 +317,7 @@ def process_file(cloud_event):
         dropped = int((~has_identity).sum())
         if dropped:
             print(f"Dropping {dropped} row(s) with no trial code, pellet id or extrusion id")
+        rows_total = len(df)
         df = df[has_identity]
 
         if df.empty:
@@ -300,6 +333,16 @@ def process_file(cloud_event):
         print(f"Loaded {len(df)} rows to {table_id}")
 
         move_blob(bucket_name, blob_name, PROCESSED_PREFIX)
+
+        write_manifest(
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="success",
+            rows_total=rows_total,
+            rows_inserted=len(df),
+            rows_rejected=dropped,
+            error_message=None,
+        )
 
     except Exception as exc:
         # ---------------------------------------------------------------
@@ -331,5 +374,15 @@ def process_file(cloud_event):
         except Exception as move_exc:
             print(f"EXTRUSION_PIPELINE_FAILURE could not move to failed prefix: {move_exc}")
             print(traceback.format_exc())
+
+        write_manifest(
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="failed",
+            rows_total=None,
+            rows_inserted=0,
+            rows_rejected=0,
+            error_message=str(exc)[:1500],
+        )
 
         raise

@@ -1,5 +1,6 @@
 import os
 import re
+import hashlib
 import tempfile
 import traceback
 from datetime import datetime, timezone
@@ -7,6 +8,35 @@ from datetime import datetime, timezone
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
+
+
+PIPELINE_NAME = "friction"
+MACHINE_ID = "tensiletester-1"
+
+
+def write_manifest(project_id, source_file, checksum, status, rows_total,
+                    rows_inserted, rows_rejected, error_message):
+    """Best-effort manifest row. Never allowed to fail the pipeline run."""
+    try:
+        client = bigquery.Client(project=project_id)
+        table_id = f"{project_id}.films_pipeline_ops.films_pipeline_manifest"
+        row = {
+            "pipeline": PIPELINE_NAME,
+            "source_file": source_file,
+            "checksum": checksum,
+            "machine_id": MACHINE_ID,
+            "status": status,
+            "rows_total": rows_total,
+            "rows_inserted": rows_inserted,
+            "rows_rejected": rows_rejected,
+            "error_message": error_message,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        errors = client.insert_rows_json(table_id, [row])
+        if errors:
+            print(f"Manifest insert returned errors: {errors}")
+    except Exception as manifest_exc:
+        print(f"Manifest insert failed (pipeline result unaffected): {manifest_exc}")
 
 
 def gcs_csv_to_bigquery(data, context):
@@ -57,6 +87,8 @@ def gcs_csv_to_bigquery(data, context):
     filename = blob_name.split("/")[-1]
     processed_path = f"{PROCESSED_PREFIX}{filename}"
     failed_path = f"{FAILED_PREFIX}{filename}"
+    gcs_uri = f"gs://{bucket_name}/{blob_name}"
+    checksum = None
 
     try:
         print(f"Processing gs://{bucket_name}/{blob_name}")
@@ -66,6 +98,9 @@ def gcs_csv_to_bigquery(data, context):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
             blob.download_to_filename(tmp.name)
             tmp_path = tmp.name
+
+        with open(tmp_path, "rb") as f:
+            checksum = hashlib.md5(f.read()).hexdigest()
 
         try:
             df = pd.read_csv(tmp_path, header=1, dtype=str, encoding="utf-8", keep_default_na=False)
@@ -110,6 +145,17 @@ def gcs_csv_to_bigquery(data, context):
 
         print(f"SUCCESS -> {processed_path}")
 
+        write_manifest(
+            project_id=PROJECT_ID,
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="success",
+            rows_total=len(df),
+            rows_inserted=len(df),
+            rows_rejected=0,
+            error_message=None,
+        )
+
     except Exception as e:
         print(f"FAILED: {e}")
         print(traceback.format_exc())
@@ -122,5 +168,16 @@ def gcs_csv_to_bigquery(data, context):
                 print(f"Moved to failed: {failed_path}")
         except Exception as move_err:
             print(f"Move failed: {move_err}")
+
+        write_manifest(
+            project_id=PROJECT_ID,
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="failed",
+            rows_total=None,
+            rows_inserted=0,
+            rows_rejected=0,
+            error_message=str(e)[:1500],
+        )
 
         raise

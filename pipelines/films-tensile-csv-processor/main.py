@@ -1,5 +1,6 @@
 import os
 import io
+import hashlib
 import logging
 from datetime import datetime, timezone
 
@@ -29,6 +30,10 @@ FAILED_PREFIX = os.environ.get(
     "tensiletester-films-tensile-failed-processing/"
 )
 
+MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
+PIPELINE_NAME = "tensile"
+MACHINE_ID = "tensiletester-1"
+
 logger = logging.getLogger("tensile_processor")
 logger.setLevel(logging.INFO)
 
@@ -51,13 +56,16 @@ def should_process(object_name: str) -> bool:
     return object_name.lower().endswith(".csv")
 
 
-def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFrame:
+def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     """
     Rules from you:
       - First row irrelevant (title line) -> drop it
       - Second row contains headers
       - Four footer rows start with Mean/SD/Min/Max in first column -> ignore them
       - Valuable rows are between header and footer
+
+    Returns (df, rows_dropped) where rows_dropped is the count of rows removed
+    for having no sample number, used for the manifest.
     """
     text = csv_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
@@ -132,7 +140,6 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFra
 
 
 
-
     out["pellet_id"] = df.get("Pellet ID (Prompt For Value - Before Test)", "").astype(str)
     out["extrusion_id"] = df.get("Extrusion ID (Prompt For Value - Before Test)", "").astype(str)
     out["test_direction"] = df.get("Test Direction (Prompt For Value - Before Test)", "").astype(str)
@@ -151,11 +158,13 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str) -> pd.DataFra
     out["processed_at"] = datetime.now(timezone.utc)
 
     # Require sample present
+    rows_before_identity_check = len(out)
     out = out[~out["sample"].isna()]
+    rows_dropped = rows_before_identity_check - len(out)
     if len(out) == 0:
         raise ValueError("No valid specimen rows (sample column empty after cleaning)")
 
-    return out
+    return out, rows_dropped
 
 
 def load_to_bigquery(df: pd.DataFrame) -> int:
@@ -204,6 +213,30 @@ def move_blob(bucket_name: str, source_name: str, dest_name: str) -> None:
     blob.delete()
 
 
+def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
+                    rows_rejected, error_message):
+    """Best-effort manifest row. Never allowed to fail the pipeline run."""
+    try:
+        client = bigquery.Client(project=PROJECT_ID)
+        row = {
+            "pipeline": PIPELINE_NAME,
+            "source_file": source_file,
+            "checksum": checksum,
+            "machine_id": MACHINE_ID,
+            "status": status,
+            "rows_total": rows_total,
+            "rows_inserted": rows_inserted,
+            "rows_rejected": rows_rejected,
+            "error_message": error_message,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        errors = client.insert_rows_json(MANIFEST_TABLE, [row])
+        if errors:
+            logger.error("Manifest insert returned errors", extra={"errors": errors, "source_file": source_file})
+    except Exception:
+        logger.exception("Manifest insert failed; pipeline result unaffected", extra={"source_file": source_file})
+
+
 def process_gcs_event(event, context=None):
     bucket = event.get("bucket") if isinstance(event, dict) else None
     name = event.get("name") if isinstance(event, dict) else None
@@ -220,10 +253,13 @@ def process_gcs_event(event, context=None):
 
     storage_client = storage.Client(project=PROJECT_ID)
     blob = storage_client.bucket(bucket).blob(name)
+    gcs_uri = f"gs://{bucket}/{name}"
+    checksum = None
 
     try:
         csv_bytes = blob.download_as_bytes()
-        df = extract_relevant_dataframe(csv_bytes, source_file=name)
+        checksum = hashlib.md5(csv_bytes).hexdigest()
+        df, rows_dropped = extract_relevant_dataframe(csv_bytes, source_file=name)
 
         rows = load_to_bigquery(df)
 
@@ -233,7 +269,17 @@ def process_gcs_event(event, context=None):
 
         logger.info("Processed OK", extra={"source_file": name, "rows_inserted": rows, "moved_to": dest})
 
-    except Exception:
+        write_manifest(
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="success",
+            rows_total=rows + rows_dropped,
+            rows_inserted=rows,
+            rows_rejected=rows_dropped,
+            error_message=None,
+        )
+
+    except Exception as exc:
         try:
             filename = name.split("/")[-1]
             dest = f"{FAILED_PREFIX}{filename}"
@@ -241,4 +287,15 @@ def process_gcs_event(event, context=None):
             logger.exception("Processing failed; moved to failed-processing", extra={"source_file": name, "moved_to": dest})
         except Exception:
             logger.exception("Processing failed; also failed to move to failed-processing", extra={"source_file": name})
+
+        write_manifest(
+            source_file=gcs_uri,
+            checksum=checksum,
+            status="failed",
+            rows_total=None,
+            rows_inserted=0,
+            rows_rejected=0,
+            error_message=str(exc)[:1500],
+        )
+
         raise
