@@ -191,9 +191,17 @@ peter@notpla.com.
 ## Current state
 
 Phase 0 of `pipeline-roadmap.md` is fully complete, including 0.4 (the
-1264/1279 roll code correction, resolved 23 August 2026). Phase 1 is next:
-manifest table, row-errors table, hourly first-sighting alert, Friday digest,
-Looker health page.
+1264/1279 roll code correction, resolved 23 August 2026).
+
+Phase 1.1 (manifest table) is in progress: `films_pipeline_ops.films_pipeline_manifest`
+created 23 August 2026, schema only, **not yet populated**. New shared dataset
+`films_pipeline_ops` created to hold this and the row-errors table (1.2),
+since neither belongs to any single test type's existing dataset.
+
+Next: wire the three deployed Cloud Functions (tensile, friction, extrusion)
+to insert one manifest row per file processed, success or failure. Until that
+lands, 1.3 (first-sighting alert), 1.4 (Friday digest) and 1.5 (Looker health
+page) have nothing to read.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
