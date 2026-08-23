@@ -190,8 +190,10 @@ peter@notpla.com.
 
 ## Current state
 
-Phase 0 of `pipeline-roadmap.md` is complete. Phase 1 is next: manifest table,
-row-errors table, hourly first-sighting alert, Friday digest, Looker health page.
+Phase 0 of `pipeline-roadmap.md` is fully complete, including 0.4 (the
+1264/1279 roll code correction, resolved 23 August 2026). Phase 1 is next:
+manifest table, row-errors table, hourly first-sighting alert, Friday digest,
+Looker health page.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
@@ -205,30 +207,11 @@ Genuine backlogs, deliberately untouched:
 
 ---
 
-## Open item
+## Resolved: 1264/1279 roll code ambiguity
 
-Samples 1383 to 1392 (tested 4 August, 17:12-17:25) exist twice, each row
-carrying one of two candidate roll codes that disagree from field 8 onward
-(see ID decode table above):
-
-- **A**: pellet bag `1264`, extruded on machine `AO`, `2026-07-01`, process
-  `LR`, roll `1379`
-- **B**: pellet bag `1279`, extruded on machine `BD`, `2026-07-08`, process
-  `LT`, roll `1397`
-
-Measurements are identical either way, so this is one set of ten tests
-mislabelled two ways, not two different tests.
-
-Evidence favours **A** (bag 1264):
-- The extrusion table has bag/roll 1264 extruded 1 July at 117.7 microns
-  average thickness, matching the 96-118 micron range these ten specimens
-  measured
-- Bag 1279's roll (1397, extruded 8 July) was already correctly used for a
-  separate, later test batch: samples 1413-1422, tested 7 August. That roll
-  being reused as a label three days earlier looks like a copy/paste crossover
-  between two files open at once, not a real second extrusion event
-- The file carrying the `1279` label is on the Excel-affected list (seconds
-  dropped from timestamps); the file carrying `1264` is not
-
-Awaiting confirmation from whoever ran the 4 August test before the ten
-`1279`-labelled rows are deleted and the change logged.
+Samples 1383 to 1392 (tested 4 August, 17:12-17:25) existed twice under two
+candidate roll codes. Lab tech confirmed roll **1264** (`AO 260701 LR 1379`)
+on 23 August 2026. The ten rows carrying the erroneous `1279`
+(`BD 260708 LT 1397`) combo were deleted and logged to `id_corrections_log`.
+Snapshot taken first: `films_tensile_results_presnap_20260823`.
+`films_tensile_results` is now 3,510 rows.

@@ -20,6 +20,8 @@ phases mostly cannot.
 - Emptied both failed-processing folders into dated archives
 - Dropped 3 redundant snapshots, the stale deduped table, and 2 orphaned Eventarc triggers
 - Settled the specimen key model against the full history
+- Resolved the 1264/1279 roll code ambiguity for samples 1383-1392 (lab tech
+  confirmed 1264); deleted the ten erroneous rows and logged the change
 
 ---
 
