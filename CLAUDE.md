@@ -216,54 +216,52 @@ The auth issue from the prior session (`service account info is missing
 
 **Next queued:** 1.2, the row-errors table, which 1.3/1.4/1.5 depend on.
 
-### In progress: extrusion alert email is not user-friendly
+### Resolved: extrusion alert email UX (24 August 2026)
 
-Peter received two real alert emails ("Alert firing" / "Alert recovered",
-both labelled "No severity") from the existing extrusion alert policy
-(see Live alerting section above). These were almost certainly triggered
-by the Phase 1.1 sanity-check CSV uploaded to extrusion's watch prefix
-during that verification, not a new organic failure: extrusion is the only
-pipeline with a live alert policy, the threshold is "above 0," and a single
-blip self-recovers.
+The two alert emails Peter received were confirmed as a side effect of the
+Phase 1.1 sanity-check upload, not a new organic failure. Root cause of the
+missing detail: `main.py` already prints
+`EXTRUSION_PIPELINE_FAILURE file=... error=...`, but the log-based metric
+had no label extraction, so the alert had nothing to reference.
 
-Peter's asks, before resuming 1.2:
-1. Set a real severity (currently blank/"No severity").
-2. Include the failed file's details in the email (filename, error) if not
-   already present.
-3. The "View Logs" link in the recovery email showed no log entry when
-   opened. Root cause: unconfirmed. Metadata server returning empty
-   `service-accounts/` bodies was the auth blocker below, not yet the same
-   investigation.
-4. Restructure the email to lead with a low-tech, non-technical summary
-   before the detailed/technical section seen today. This matters because
-   Phase 1.3 (hourly first-sighting alert) will eventually route tensile and
-   friction alerts to people less familiar with the system than Peter.
+Changes made to the live policy and metric (not the repo; these are GCP
+config, not code):
+- `extrusion_pipeline_failure` log-based metric: filter narrowed to the
+  `file=...error=...` line specifically (was matching any
+  `EXTRUSION_PIPELINE_FAILURE` substring, which double-counted the rarer
+  "could not move to failed prefix" line); added `file` and `error` STRING
+  labels via `labelExtractors` (`REGEXP_EXTRACT`, using `[^ ]+` rather than
+  `\S+`, since the extractor DSL's string-literal parser rejects `\S` as an
+  unsupported escape sequence).
+- Alert policy `16570272964582018556`: added `severity: WARNING` (chosen
+  because a caught, quarantined file is not data loss, consistent with the
+  flag-don't-reject philosophy elsewhere in this project); condition
+  aggregation now has `groupByFields: [metric.label.file]` so each incident
+  carries its own file's labels; documentation rewritten as a plain-language
+  bulleted summary followed by a technical section with `${metric.label.file}`
+  and `${metric.label.error}` inlined, plus a note that the "View Logs"
+  button's default time window doesn't always cover an already-resolved
+  incident.
 
-**Not yet investigated:** the actual alert policy, log-based metric, and
-notification channel config, or how `EXTRUSION_PIPELINE_FAILURE` is logged
-in `pipelines/films-extrusion-csv-processor/main.py` (whether file/error
-details are already in the structured log payload). Planned next commands
-once auth is back:
-```
-gcloud logging metrics describe extrusion_pipeline_failure --format=yaml
-gcloud alpha monitoring policies describe projects/notpla-machine-data/alertPolicies/16570272964582018556 --format=yaml
-gcloud alpha monitoring channels describe projects/notpla-machine-data/notificationChannels/14063382024575468776 --format=yaml
-```
+Verified: regex tested against a real production log line (correct
+extraction of both fields), sanity-check file confirmed processed and moved
+to failed-processing as before. A live alert email was triggered to confirm
+the new format end-to-end; test file then deleted from the bucket.
 
-**Blocked on:** gcloud/bq auth again showing the same
-`service account info is missing 'email' field` symptom, this time after a
-Cloud Shell restart that did not immediately resolve it. Diagnosed further
-this time: `curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/`
-returns HTTP 200 with an **empty body**, and the shell's `uptime` did not
-reset to a few minutes after the reported restart, suggesting either the
-restart had not finished propagating or the attached terminal was still the
-pre-restart session. Waiting on Peter to fully close and reopen the Cloud
-Shell tab (not just the ⋮ menu Restart) and confirm reconnection.
+Config for both lives only in GCP (`gcloud logging metrics describe
+extrusion_pipeline_failure`, `gcloud alpha monitoring policies describe
+projects/notpla-machine-data/alertPolicies/16570272964582018556`), not
+version-controlled. Worth a follow-up if there's ever a Terraform/config
+pass over this project's alerting.
 
-**Next step on resume:** before trusting auth is fixed, verify both
-`bq query --use_legacy_sql=false "SELECT 1"` succeeds AND the metadata-server
-curl above returns a real email address, not just that the command exits 0.
-Then continue the alert-email investigation above; Phase 1.2 resumes after.
+Not done: item 3 (the logs link showing nothing) was addressed by adding a
+note in the alert body about widening the time range, not by fixing the
+link's underlying default window, since that's a Cloud Monitoring platform
+behaviour, not something this policy controls directly.
+
+This same pattern (severity, label extraction, two-tier documentation) is
+the template to reuse when tensile and friction get alert policies under
+Phase 1.3, where the audience is less technical than Peter.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
