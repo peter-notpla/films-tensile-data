@@ -262,7 +262,88 @@ WHERE source_file LIKE '%mixedrow%'
 Revisions deployed this phase: `films-tensile-csv-processor-00016-doj`,
 `films-friction-csv-processor-00007-sed`, `films-extrusion-csv-processor-00010-duy`.
 
-**Next queued:** 1.3, the hourly first-sighting alert.
+The three leftover `mixedrow` test rows in `films_pipeline_row_errors` were
+deleted once the streaming buffer cleared (24 August 2026, afternoon). That
+table now holds only real data.
+
+**Phase 1.3 (hourly first-sighting alert) is built and deployed, verification
+paused mid-way (24 August 2026).** Original roadmap design (Cloud Function
+sends email directly via SMTP) was rejected twice during scoping and replaced
+with a design that reuses the existing Cloud Monitoring alerting pattern from
+the extrusion alert (structured log line -> log-based metric -> alert policy
+-> notification channel), specifically to avoid creating any new Google
+account, alias, or app password. Full design reasoning is in
+`~/.claude/plans/elegant-mixing-iverson.md`.
+
+Routing: `KF` -> Katie, `ED` -> Emily, anything else (no initials column,
+unrecognised initials, or extrusion, which has no initials field at all) ->
+Peter, via `films_pipeline_ops.films_pipeline_user_directory`
+(`user_initials` -> `route`).
+
+Deployed:
+- BQ tables `films_pipeline_ops.films_pipeline_user_directory` (seeded
+  `KF`->`katie`, `ED`->`emily`) and `films_pipeline_ops.films_pipeline_alerts_sent`
+  (dedup/audit log, pre-seeded with the 8 stale test-failure rows already in
+  the manifest from 1.1/1.2 testing so they wouldn't fire on first run).
+- Cloud Function `films-pipeline-failure-alerter`
+  (`pipelines/films-pipeline-failure-alerter/`), gen2, HTTP-triggered, revision
+  `films-pipeline-failure-alerter-00002-kiz`. Runs as new least-privilege SA
+  `films-pipeline-alerter-sa` (dataset-level WRITER on `films_pipeline_ops` via
+  the legacy ACL path, since dataset-level IAM policy bindings need an
+  allowlist this project doesn't have; project-level `bigquery.jobUser`;
+  bucket-level `storage.objectViewer`). Queries the manifest for `status='failed'`
+  rows not yet in the dedup table, re-downloads the failed file to look for a
+  `User Initials (Prompt For Value - After Test)` column, resolves a route, and
+  prints one `PIPELINE_FAILURE_ALERT` log line per newly-failed file. Field
+  order in that line is deliberately `route=... reason=... error=...` (error
+  last), because `error_message` can contain embedded newlines that split into
+  separate log entries and would otherwise silently truncate routing info.
+- Log-based metric `pipeline_failure_alert` (labels: `pipeline`, `file`,
+  `route`, `reason`, `error`), three new alert policies (`route="katie"` ->
+  [Katie, Peter], `route="emily"` -> [Emily, Peter], `route="default"` ->
+  [Peter]), two new notification channels (Katie, Emily) alongside the
+  existing Peter one.
+- Cloud Scheduler job `films-pipeline-failure-alert-hourly`, `0 * * * *`
+  Europe/London, OIDC-authenticated as `films-pipeline-alerter-sa`.
+
+**Verified so far:** uploaded one synthetic bad file per pipeline, each
+carrying a real `user_initials` value where relevant
+(`alert_test_katie_20260824_164432.csv` -> tensile, initials `KF`;
+`alert_test_emily_20260824_164432.csv` -> friction, initials `ED`;
+`alert_test_default_20260824_164432.csv` -> extrusion, no initials column).
+All three failed as designed and landed in their pipeline's failed-processing
+folder with a `status='failed'` manifest row. Manually invoked the alerter
+twice: first call reported `{"checked":3,"alerted":3}` with correct
+`route`/`route_reason` in both the function logs and the
+`films_pipeline_alerts_sent` rows (`katie`/`initials:KF`,
+`emily`/`initials:ED`, `default`/`no_initials_column`); second call reported
+`{"checked":0,"alerted":0}`, confirming dedup. Queried the Monitoring API
+directly and confirmed the log-based metric extracted all five labels
+correctly for all three test incidents, with no truncation on the long
+`error` fields.
+
+**Not yet confirmed: actual email delivery.** Asked Peter to check
+peter@notpla.com for 3 alert emails (one via each policy, all three attached
+to Peter's channel). Session paused here before he could check - **this is
+the exact next step for the next session.** If Peter confirms all 3 arrived
+correctly:
+1. Ask Katie and Emily whether their own alert email arrived too (I can only
+   verify Peter's inbox; the channel bindings were confirmed correct via
+   `gcloud alpha monitoring channels describe`, but never independently
+   confirmed by them receiving it).
+2. Clean up test artifacts: delete the 3 test files from each pipeline's
+   failed-processing folder, delete the 3 test rows from
+   `films_pipeline_manifest`, and delete the 3 test rows from
+   `films_pipeline_alerts_sent` (mind the streaming-buffer delete restriction
+   again, same as the 1.2 cleanup).
+3. Update this file's Current state and `pipeline-roadmap.md`'s Done list to
+   mark 1.3 fully complete.
+
+If something arrived wrong (missing, mis-routed, garbled), investigate before
+any cleanup - the live test artifacts are exactly what's needed to debug it.
+
+Nothing in this build touched or risked existing data: no changes to the
+three processors, the manifest table, or the row-errors table.
 
 ### Resolved: extrusion alert email UX (24 August 2026)
 
