@@ -214,7 +214,56 @@ file was routed to failed-processing, not silently dropped.
 The auth issue from the prior session (`service account info is missing
 'email' field`) did not recur; the Cloud Shell VM restart fixed it.
 
-**Next:** 1.2, the row-errors table, which 1.3/1.4/1.5 depend on.
+**Next queued:** 1.2, the row-errors table, which 1.3/1.4/1.5 depend on.
+
+### In progress: extrusion alert email is not user-friendly
+
+Peter received two real alert emails ("Alert firing" / "Alert recovered",
+both labelled "No severity") from the existing extrusion alert policy
+(see Live alerting section above). These were almost certainly triggered
+by the Phase 1.1 sanity-check CSV uploaded to extrusion's watch prefix
+during that verification, not a new organic failure: extrusion is the only
+pipeline with a live alert policy, the threshold is "above 0," and a single
+blip self-recovers.
+
+Peter's asks, before resuming 1.2:
+1. Set a real severity (currently blank/"No severity").
+2. Include the failed file's details in the email (filename, error) if not
+   already present.
+3. The "View Logs" link in the recovery email showed no log entry when
+   opened. Root cause: unconfirmed. Metadata server returning empty
+   `service-accounts/` bodies was the auth blocker below, not yet the same
+   investigation.
+4. Restructure the email to lead with a low-tech, non-technical summary
+   before the detailed/technical section seen today. This matters because
+   Phase 1.3 (hourly first-sighting alert) will eventually route tensile and
+   friction alerts to people less familiar with the system than Peter.
+
+**Not yet investigated:** the actual alert policy, log-based metric, and
+notification channel config, or how `EXTRUSION_PIPELINE_FAILURE` is logged
+in `pipelines/films-extrusion-csv-processor/main.py` (whether file/error
+details are already in the structured log payload). Planned next commands
+once auth is back:
+```
+gcloud logging metrics describe extrusion_pipeline_failure --format=yaml
+gcloud alpha monitoring policies describe projects/notpla-machine-data/alertPolicies/16570272964582018556 --format=yaml
+gcloud alpha monitoring channels describe projects/notpla-machine-data/notificationChannels/14063382024575468776 --format=yaml
+```
+
+**Blocked on:** gcloud/bq auth again showing the same
+`service account info is missing 'email' field` symptom, this time after a
+Cloud Shell restart that did not immediately resolve it. Diagnosed further
+this time: `curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/`
+returns HTTP 200 with an **empty body**, and the shell's `uptime` did not
+reset to a few minutes after the reported restart, suggesting either the
+restart had not finished propagating or the attached terminal was still the
+pre-restart session. Waiting on Peter to fully close and reopen the Cloud
+Shell tab (not just the ⋮ menu Restart) and confirm reconnection.
+
+**Next step on resume:** before trusting auth is fixed, verify both
+`bq query --use_legacy_sql=false "SELECT 1"` succeeds AND the metadata-server
+curl above returns a real email address, not just that the command exits 0.
+Then continue the alert-email investigation above; Phase 1.2 resumes after.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
