@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import hashlib
 import logging
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ FAILED_PREFIX = os.environ.get(
 )
 
 MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
+ROW_ERRORS_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_row_errors"
 PIPELINE_NAME = "tensile"
 MACHINE_ID = "tensiletester-1"
 
@@ -64,8 +66,11 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
       - Four footer rows start with Mean/SD/Min/Max in first column -> ignore them
       - Valuable rows are between header and footer
 
-    Returns (df, rows_dropped) where rows_dropped is the count of rows removed
-    for having no sample number, used for the manifest.
+    Returns (df, rows_dropped, row_errors). rows_dropped is the count of rows
+    removed for missing a sample number or having an unparseable timestamp,
+    since both are required by the specimen key model. row_errors is a list
+    of dicts (row_number, reason, raw_row) for those same rows, one per row,
+    for the row-errors table.
     """
     text = csv_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
@@ -97,6 +102,11 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     df = df[~(df == "").all(axis=1)]
     if len(df) == 0:
         raise ValueError("No data rows found between header and footer")
+
+    # Clean index so row_number below is a stable 1-based position within
+    # the data block, and so out's index lines up with df's for the bad-row
+    # lookup at the end.
+    df = df.reset_index(drop=True)
 
     out = pd.DataFrame()
 
@@ -130,15 +140,16 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
         errors="coerce"
     )
 
+    # This final fallback used to pass errors="raise", which meant a single
+    # row with a timestamp in none of the four formats killed the entire
+    # file rather than just that row. Bad rows are now routed to the
+    # row-errors table below instead.
     mask = out["timestamp_start"].isna() & ts_raw.ne("")
     out.loc[mask, "timestamp_start"] = pd.to_datetime(
         ts_raw[mask],
         format="%d/%m/%Y %H:%M",
-        errors="raise"
+        errors="coerce"
     )
-
-
-
 
     out["pellet_id"] = df.get("Pellet ID (Prompt For Value - Before Test)", "").astype(str)
     out["extrusion_id"] = df.get("Extrusion ID (Prompt For Value - Before Test)", "").astype(str)
@@ -157,14 +168,33 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     out["source_file"] = source_file
     out["processed_at"] = datetime.now(timezone.utc)
 
-    # Require sample present
-    rows_before_identity_check = len(out)
-    out = out[~out["sample"].isna()]
-    rows_dropped = rows_before_identity_check - len(out)
+    # A row needs both a sample number and a parseable timestamp to satisfy
+    # the specimen key model (timestamp_minute + sample). Anything else is
+    # unusable: route it to the row-errors table with the raw values and
+    # reason, instead of silently dropping it.
+    bad_sample = out["sample"].isna()
+    bad_timestamp = out["timestamp_start"].isna()
+    bad_mask = bad_sample | bad_timestamp
+
+    row_errors = []
+    for idx, raw_row in df.loc[bad_mask].iterrows():
+        reasons = []
+        if bad_sample.loc[idx]:
+            reasons.append("missing or non-numeric sample number")
+        if bad_timestamp.loc[idx]:
+            reasons.append(f"unparseable timestamp: {ts_raw.loc[idx]!r}")
+        row_errors.append({
+            "row_number": int(idx) + 1,
+            "reason": "; ".join(reasons),
+            "raw_row": json.dumps(raw_row.to_dict()),
+        })
+
+    out = out[~bad_mask]
+    rows_dropped = len(row_errors)
     if len(out) == 0:
         raise ValueError("No valid specimen rows (sample column empty after cleaning)")
 
-    return out, rows_dropped
+    return out, rows_dropped, row_errors
 
 
 def load_to_bigquery(df: pd.DataFrame) -> int:
@@ -237,6 +267,32 @@ def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
         logger.exception("Manifest insert failed; pipeline result unaffected", extra={"source_file": source_file})
 
 
+def write_row_errors(row_errors, source_file, checksum):
+    """Best-effort row-errors write. Never allowed to fail the pipeline run."""
+    if not row_errors:
+        return
+    try:
+        client = bigquery.Client(project=PROJECT_ID)
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            {
+                "pipeline": PIPELINE_NAME,
+                "source_file": source_file,
+                "checksum": checksum,
+                "row_number": e["row_number"],
+                "reason": e["reason"],
+                "raw_row": e["raw_row"],
+                "processed_at": now,
+            }
+            for e in row_errors
+        ]
+        errors = client.insert_rows_json(ROW_ERRORS_TABLE, rows)
+        if errors:
+            logger.error("Row-errors insert returned errors", extra={"errors": errors, "source_file": source_file})
+    except Exception:
+        logger.exception("Row-errors insert failed; pipeline result unaffected", extra={"source_file": source_file})
+
+
 def process_gcs_event(event, context=None):
     bucket = event.get("bucket") if isinstance(event, dict) else None
     name = event.get("name") if isinstance(event, dict) else None
@@ -259,7 +315,7 @@ def process_gcs_event(event, context=None):
     try:
         csv_bytes = blob.download_as_bytes()
         checksum = hashlib.md5(csv_bytes).hexdigest()
-        df, rows_dropped = extract_relevant_dataframe(csv_bytes, source_file=name)
+        df, rows_dropped, row_errors = extract_relevant_dataframe(csv_bytes, source_file=name)
 
         rows = load_to_bigquery(df)
 
@@ -268,6 +324,8 @@ def process_gcs_event(event, context=None):
         move_blob(bucket, name, dest)
 
         logger.info("Processed OK", extra={"source_file": name, "rows_inserted": rows, "moved_to": dest})
+
+        write_row_errors(row_errors, source_file=gcs_uri, checksum=checksum)
 
         write_manifest(
             source_file=gcs_uri,

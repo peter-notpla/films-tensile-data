@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import hashlib
 import tempfile
 import traceback
@@ -39,6 +40,33 @@ def write_manifest(project_id, source_file, checksum, status, rows_total,
         print(f"Manifest insert failed (pipeline result unaffected): {manifest_exc}")
 
 
+def write_row_errors(project_id, row_errors, source_file, checksum):
+    """Best-effort row-errors write. Never allowed to fail the pipeline run."""
+    if not row_errors:
+        return
+    try:
+        client = bigquery.Client(project=project_id)
+        table_id = f"{project_id}.films_pipeline_ops.films_pipeline_row_errors"
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            {
+                "pipeline": PIPELINE_NAME,
+                "source_file": source_file,
+                "checksum": checksum,
+                "row_number": e["row_number"],
+                "reason": e["reason"],
+                "raw_row": e["raw_row"],
+                "processed_at": now,
+            }
+            for e in row_errors
+        ]
+        errors = client.insert_rows_json(table_id, rows)
+        if errors:
+            print(f"Row-errors insert returned errors: {errors}")
+    except Exception as row_errors_exc:
+        print(f"Row-errors insert failed (pipeline result unaffected): {row_errors_exc}")
+
+
 def gcs_csv_to_bigquery(data, context):
     PROJECT_ID = os.environ["PROJECT_ID"]
     BQ_DATASET = os.environ["BQ_DATASET"]
@@ -64,14 +92,14 @@ def gcs_csv_to_bigquery(data, context):
 
     def parse_ts(value):
         if pd.isna(value) or str(value).strip() == "":
-            raise ValueError("Blank timestamp")
+            return None
         text = str(value).strip()
         for fmt in TIMESTAMP_FORMATS:
             try:
                 return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
-        raise ValueError(f"Unsupported timestamp: {text}")
+        return None
 
     bucket_name = data["bucket"]
     blob_name = data["name"]
@@ -113,8 +141,17 @@ def gcs_csv_to_bigquery(data, context):
         df = df[cols]
 
         first_col = df.columns[0]
-        df = df[df[first_col].astype(str).str.strip() != ""]
         df = df[~df[first_col].astype(str).str.lower().isin(FOOTER_MARKERS)]
+
+        # A fully blank row (every column empty, e.g. Excel's trailing
+        # padding) carries nothing and is dropped silently here. A row
+        # that's blank in some columns but not others is real data with a
+        # problem and is handled below instead, not swallowed here. This
+        # used to check only the first column, which meant a row with a
+        # blank Sample but real measurements in every other column was
+        # dropped the same way as genuine padding, with no trace at all.
+        blanked = df.replace(r"^\s*$", "", regex=True)
+        df = df[~(blanked == "").all(axis=1)]
 
         if df.empty:
             raise ValueError("No data rows")
@@ -127,10 +164,42 @@ def gcs_csv_to_bigquery(data, context):
         if "timestamp_start" not in df.columns:
             raise ValueError("Missing timestamp column")
 
-        if (df["sample"].astype(str).str.strip() == "").any():
-            raise ValueError("Blank sample found")
+        # Row_number below is a stable 1-based position within the data
+        # block, and the reset lets the raw-value snapshot and the parsed
+        # masks below line up by index.
+        df = df.reset_index(drop=True)
+        raw_values = df.copy()
 
-        df["timestamp_start"] = df["timestamp_start"].apply(parse_ts)
+        # A row needs both a sample number and a parseable timestamp to be
+        # usable. Previously a single blank sample or bad timestamp raised
+        # and killed the entire file. Bad rows are now dropped individually
+        # and routed to the row-errors table with the raw values and reason;
+        # the rest of the file still loads.
+        bad_sample_mask = df["sample"].astype(str).str.strip() == ""
+        parsed_ts = df["timestamp_start"].apply(parse_ts)
+        bad_ts_mask = parsed_ts.isna()
+        bad_mask = bad_sample_mask | bad_ts_mask
+
+        row_errors = []
+        for idx, raw_row in raw_values.loc[bad_mask].iterrows():
+            reasons = []
+            if bad_sample_mask.loc[idx]:
+                reasons.append("blank sample")
+            if bad_ts_mask.loc[idx]:
+                reasons.append(f"unparseable timestamp: {raw_values.loc[idx, 'timestamp_start']!r}")
+            row_errors.append({
+                "row_number": int(idx) + 1,
+                "reason": "; ".join(reasons),
+                "raw_row": json.dumps(raw_row.to_dict()),
+            })
+
+        rows_total = len(df)
+        df = df[~bad_mask].copy()
+        rows_dropped = len(row_errors)
+        if df.empty:
+            raise ValueError("No valid rows remain after dropping blank samples / unparseable timestamps")
+
+        df["timestamp_start"] = parsed_ts[~bad_mask]
         df["timestamp_start"] = pd.to_datetime(df["timestamp_start"], utc=True)
 
         df["source_file"] = f"gs://{bucket_name}/{blob_name}"
@@ -145,14 +214,16 @@ def gcs_csv_to_bigquery(data, context):
 
         print(f"SUCCESS -> {processed_path}")
 
+        write_row_errors(PROJECT_ID, row_errors, source_file=gcs_uri, checksum=checksum)
+
         write_manifest(
             project_id=PROJECT_ID,
             source_file=gcs_uri,
             checksum=checksum,
             status="success",
-            rows_total=len(df),
+            rows_total=rows_total,
             rows_inserted=len(df),
-            rows_rejected=0,
+            rows_rejected=rows_dropped,
             error_message=None,
         )
 

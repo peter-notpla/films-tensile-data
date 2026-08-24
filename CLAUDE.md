@@ -214,7 +214,55 @@ file was routed to failed-processing, not silently dropped.
 The auth issue from the prior session (`service account info is missing
 'email' field`) did not recur; the Cloud Shell VM restart fixed it.
 
-**Next queued:** 1.2, the row-errors table, which 1.3/1.4/1.5 depend on.
+**Phase 1.2 (row-errors table) is complete, as of 24 August 2026.** New
+table `films_pipeline_ops.films_pipeline_row_errors`: `pipeline`,
+`source_file`, `checksum`, `row_number`, `reason`, `raw_row` (original row
+as JSON), `processed_at`. Writes are best-effort, same wrapped pattern as
+the manifest table.
+
+This phase turned out to be two bug fixes, not just a new table. Before this
+work, tensile and friction could both lose an entire file to a single bad
+row:
+- **Tensile:** the last timestamp-format fallback used
+  `pd.to_datetime(..., errors="raise")` instead of `coerce`. One row with a
+  timestamp in none of the four known formats killed the whole file.
+- **Friction:** `if (blank sample).any(): raise` and
+  `df["timestamp_start"].apply(parse_ts)` (which itself raised) both failed
+  the entire file on the first bad row, with no partial-load path at all.
+
+Both now drop only the bad row, load everything else, and write the bad row
+(1-based position, reason, full original values as JSON) to the row-errors
+table. Extrusion already dropped identity-less rows safely; it now also
+captures them to row-errors instead of just counting them.
+
+A second, subtler bug turned up in **friction** while testing this:
+the "drop blank padding rows" filter checked only whether the *first* CSV
+column (`Sample`, confirmed against real processed files) was blank, not
+the whole row. A row with a blank Sample but real data in every other
+column was silently swallowed by that filter before ever reaching the new
+row-errors logic, exactly the "no trace" failure this phase was meant to
+fix. Changed to check whether every column is blank (tensile already did
+this correctly). Deployed as `films-friction-csv-processor-00007-sed`.
+
+Verified live, not just locally: uploaded a file per pipeline with one good
+row (marked `sample=999999999`/`trial_code=ROWERRTEST`) and one bad row.
+Confirmed for all three: the file moved to `processed` (not `failed`), the
+good row landed in the real results table, and the bad row landed in
+`films_pipeline_row_errors` with the correct reason and raw values. All
+test rows and files then deleted, **except** the three test rows in
+`films_pipeline_row_errors` itself: BigQuery blocks DELETE on rows still in
+the streaming buffer (up to ~90 minutes after a streaming insert). They're
+easy to identify (`source_file LIKE '%mixedrow%'`) and harmless (that table
+had no other data yet); delete on the next session once the buffer clears:
+```sql
+DELETE FROM `notpla-machine-data.films_pipeline_ops.films_pipeline_row_errors`
+WHERE source_file LIKE '%mixedrow%'
+```
+
+Revisions deployed this phase: `films-tensile-csv-processor-00016-doj`,
+`films-friction-csv-processor-00007-sed`, `films-extrusion-csv-processor-00010-duy`.
+
+**Next queued:** 1.3, the hourly first-sighting alert.
 
 ### Resolved: extrusion alert email UX (24 August 2026)
 

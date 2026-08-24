@@ -1,4 +1,5 @@
 import os
+import json
 import hashlib
 import traceback
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ PROCESSED_PREFIX = os.environ["PROCESSED_PREFIX"].strip("/")
 FAILED_PREFIX = os.environ["FAILED_PREFIX"].strip("/")
 
 MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
+ROW_ERRORS_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_row_errors"
 PIPELINE_NAME = "extrusion"
 MACHINE_ID = "collin-e25e"
 
@@ -188,6 +190,31 @@ def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
         print(f"Manifest insert failed (pipeline result unaffected): {manifest_exc}")
 
 
+def write_row_errors(row_errors, source_file, checksum):
+    """Best-effort row-errors write. Never allowed to fail the pipeline run."""
+    if not row_errors:
+        return
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            {
+                "pipeline": PIPELINE_NAME,
+                "source_file": source_file,
+                "checksum": checksum,
+                "row_number": e["row_number"],
+                "reason": e["reason"],
+                "raw_row": e["raw_row"],
+                "processed_at": now,
+            }
+            for e in row_errors
+        ]
+        errors = bq_client.insert_rows_json(ROW_ERRORS_TABLE, rows)
+        if errors:
+            print(f"Row-errors insert returned errors: {errors}")
+    except Exception as row_errors_exc:
+        print(f"Row-errors insert failed (pipeline result unaffected): {row_errors_exc}")
+
+
 @functions_framework.cloud_event
 def process_file(cloud_event):
     data = cloud_event.data
@@ -236,6 +263,12 @@ def process_file(cloud_event):
 
         # Rename known headers to BigQuery column names.
         df = df.rename(columns=HEADER_MAP)
+
+        # Snapshot for the row-errors table, before numeric/date coercion
+        # turns unparseable values into NaN and loses the original content.
+        # No rows are dropped between here and the identity check below, so
+        # the index still lines up.
+        raw_snapshot = df.copy()
 
         # ---------------------------------------------------------------
         # ADDED 21 Aug 2026: required-column guard.
@@ -314,7 +347,15 @@ def process_file(cloud_event):
             col_filled = df[col].notna() & (df[col].astype(str).str.strip() != "")
             has_identity = col_filled if has_identity is False else (has_identity | col_filled)
 
-        dropped = int((~has_identity).sum())
+        row_errors = []
+        for idx in df.index[~has_identity]:
+            row_errors.append({
+                "row_number": int(idx) + 1,
+                "reason": f"none of {IDENTITY_COLUMNS} present",
+                "raw_row": json.dumps(raw_snapshot.loc[idx].to_dict(), default=str),
+            })
+
+        dropped = len(row_errors)
         if dropped:
             print(f"Dropping {dropped} row(s) with no trial code, pellet id or extrusion id")
         rows_total = len(df)
@@ -333,6 +374,8 @@ def process_file(cloud_event):
         print(f"Loaded {len(df)} rows to {table_id}")
 
         move_blob(bucket_name, blob_name, PROCESSED_PREFIX)
+
+        write_row_errors(row_errors, source_file=gcs_uri, checksum=checksum)
 
         write_manifest(
             source_file=gcs_uri,

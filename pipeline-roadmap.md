@@ -24,6 +24,13 @@ phases mostly cannot.
   confirmed 1264); deleted the ten erroneous rows and logged the change
 - Built and deployed the manifest table (1.1) across all three pipelines,
   each individually verified against a controlled bad CSV (24 August 2026)
+- Made the extrusion alert email user-friendly: severity, per-file detail,
+  plain-language summary ahead of the technical section (24 August 2026)
+- Built and deployed the row-errors table (1.2) across all three pipelines,
+  fixing two bugs along the way where a single bad row killed the entire
+  file (tensile's timestamp fallback, friction's raise-on-blank-sample and
+  its first-column-only blank filter); verified live end to end
+  (24 August 2026)
 
 ---
 
