@@ -193,37 +193,28 @@ peter@notpla.com.
 Phase 0 of `pipeline-roadmap.md` is fully complete, including 0.4 (the
 1264/1279 roll code correction, resolved 23 August 2026).
 
-Phase 1.1 (manifest table), as of 23 August 2026:
-- `films_pipeline_ops.films_pipeline_manifest` created. New shared dataset
-  `films_pipeline_ops` holds this and will hold the row-errors table (1.2),
-  since neither belongs to any single test type's existing dataset.
-- All three `main.py` files (tensile, friction, extrusion) updated to insert
-  one manifest row per file processed, success or failure. Each write is
-  wrapped so a manifest failure can never break the actual pipeline. Compiles
-  clean. **Committed and pushed, but NOT YET DEPLOYED.** The three live
-  Cloud Functions are still running the pre-manifest code.
+**Phase 1.1 (manifest table) is complete, as of 24 August 2026.** All three
+Cloud Functions are deployed with manifest logging and each was sanity-checked
+individually with a controlled bad CSV (`NotAHeader,AlsoNot`) uploaded to its
+watch prefix:
 
-**Blocked on:** gcloud/bq auth broke mid-session in this Cloud Shell
-(`service account info is missing 'email' field` from the metadata server,
-not a normal expired token — `gcloud auth login`'s own output confirms Cloud
-Shell shouldn't need it). Likely fix: restart the Cloud Shell VM (⋮ menu →
-Restart, or close/reopen Cloud Shell), which should be enough on its own.
+| Pipeline | Revision | Manifest `error_message` on bad CSV |
+|---|---|---|
+| tensile | `films-tensile-csv-processor-00015-jaw` | `CSV too short (needs title + header + data)` |
+| friction | `films-friction-csv-processor-00005-dun` | `No data rows` |
+| extrusion | `films-extrusion-csv-processor-00009-gis` | `Only 0 recognised columns (need at least 10)...` |
 
-**Next step on resume:** verify `bq query --use_legacy_sql=false "SELECT 1"`
-works, then deploy the three functions one at a time:
-```
-cd ~/films-tensile-data/pipelines/<pipeline>
-gcloud functions deploy <function-name> --region=europe-west2 --gen2 --source=. --quiet
-```
-Function names: `films-tensile-csv-processor`, `films-friction-csv-processor`,
-`films-extrusion-csv-processor`. After each deploy, sanity-check with a
-controlled bad CSV (e.g. the `NotAHeader,AlsoNot` case) uploaded to that
-pipeline's watch prefix: confirm it lands in the failed-processing folder as
-before, then query `films_pipeline_manifest` for a `status='failed'` row with
-a matching `source_file` and populated `error_message`. This exercises the
-new code without inserting anything into a real results table. Only once all
-three are confirmed does 1.1 count as actually done; then move on to 1.2
-(row-errors table), which 1.3/1.4/1.5 depend on.
+Each test file was confirmed in its failed-processing folder, confirmed as a
+`status='failed'` row in `films_pipeline_manifest` with a populated
+`error_message`, then deleted from the bucket (bucket versioning is
+Suspended, so this was a real delete, not a soft one). The extrusion result
+also re-confirms the Phase 0.1 fix (`move_blob` + `raise`) is live: the bad
+file was routed to failed-processing, not silently dropped.
+
+The auth issue from the prior session (`service account info is missing
+'email' field`) did not recur; the Cloud Shell VM restart fixed it.
+
+**Next:** 1.2, the row-errors table, which 1.3/1.4/1.5 depend on.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.

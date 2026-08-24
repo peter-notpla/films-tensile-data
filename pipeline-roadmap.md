@@ -22,6 +22,8 @@ phases mostly cannot.
 - Settled the specimen key model against the full history
 - Resolved the 1264/1279 roll code ambiguity for samples 1383-1392 (lab tech
   confirmed 1264); deleted the ten erroneous rows and logged the change
+- Built and deployed the manifest table (1.1) across all three pipelines,
+  each individually verified against a controlled bad CSV (24 August 2026)
 
 ---
 
