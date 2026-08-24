@@ -33,10 +33,16 @@ FAILED_PREFIXES = {
 
 INITIALS_COLUMN_HINT = "user initials"
 
+PIPELINE_READABLE = {
+    "tensile": "Tensile Testing",
+    "friction": "Friction Testing",
+    "extrusion": "Extrusion",
+}
+
 
 def find_new_failures(bq):
     query = f"""
-        SELECT m.pipeline, m.source_file, m.checksum, m.error_message
+        SELECT m.pipeline, m.source_file, m.checksum, m.error_message, m.processed_at
         FROM `{MANIFEST_TABLE}` m
         WHERE m.status = 'failed'
           AND NOT EXISTS (
@@ -45,6 +51,31 @@ def find_new_failures(bq):
           )
     """
     return list(bq.query(query).result())
+
+
+def find_previous_failure(bq, pipeline, filename, current_processed_at):
+    """The manifest row immediately before this one for the same pipeline
+    and filename, if any. Matched on filename rather than checksum because
+    a fixed re-upload is a new file with a new checksum; the documented fix
+    procedure keeps the filename unchanged, which is what makes this a
+    reliable repeat-failure signal. Returns None if this filename has never
+    been seen before."""
+    query = f"""
+        SELECT status, error_message, processed_at
+        FROM `{MANIFEST_TABLE}`
+        WHERE pipeline = @pipeline
+          AND ENDS_WITH(source_file, CONCAT('/', @filename))
+          AND processed_at < @current_processed_at
+        ORDER BY processed_at DESC
+        LIMIT 1
+    """
+    job_config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("pipeline", "STRING", pipeline),
+        bigquery.ScalarQueryParameter("filename", "STRING", filename),
+        bigquery.ScalarQueryParameter("current_processed_at", "TIMESTAMP", current_processed_at),
+    ])
+    rows = list(bq.query(query, job_config=job_config).result())
+    return rows[0] if rows else None
 
 
 def load_directory(bq):
@@ -119,6 +150,11 @@ def check_and_alert(request):
         checksum = row["checksum"]
         error_message = row["error_message"] or ""
         filename = source_file.split("/")[-1]
+        pipeline_readable = PIPELINE_READABLE.get(pipeline, pipeline)
+        failed_at = (
+            row["processed_at"].strftime("%d %b %Y %H:%M UTC")
+            if row["processed_at"] else "unknown"
+        )
 
         route, route_reason = resolve_route(pipeline, source_file, directory)
 
@@ -127,11 +163,30 @@ def check_and_alert(request):
         # reason come before error deliberately: error_message can contain
         # embedded newlines (seen in real BigQuery error text), which split
         # into separate log entries downstream and would silently truncate
-        # anything printed after the first one, including routing.
+        # anything printed after the first one, including routing. Same
+        # reasoning keeps pipeline_readable/failed_at (both may contain
+        # spaces) before file/route/reason rather than after.
         print(
-            f"PIPELINE_FAILURE_ALERT pipeline={pipeline} file={filename} "
+            f"PIPELINE_FAILURE_ALERT pipeline={pipeline} pipeline_readable={pipeline_readable} "
+            f"failed_at={failed_at} file={filename} "
             f"route={route} reason={route_reason} error={error_message}"
         )
+
+        previous = find_previous_failure(bq, pipeline, filename, row["processed_at"])
+        if previous is not None and previous["status"] == "failed":
+            previous_failed_at = (
+                previous["processed_at"].strftime("%d %b %Y %H:%M UTC")
+                if previous["processed_at"] else "unknown"
+            )
+            # Newlines flattened here (unlike error= below) so this field
+            # can safely sit before error= without risking the same-entry
+            # truncation the comment above describes.
+            previous_error = (previous["error_message"] or "").replace("\n", " ")
+            print(
+                f"PIPELINE_FAILURE_ESCALATION pipeline={pipeline} pipeline_readable={pipeline_readable} "
+                f"file={filename} failed_at={failed_at} previous_failed_at={previous_failed_at} "
+                f"previous_error={previous_error} error={error_message}"
+            )
 
         try:
             errors = bq.insert_rows_json(

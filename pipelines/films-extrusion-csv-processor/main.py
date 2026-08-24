@@ -167,6 +167,21 @@ def move_blob(bucket_name, blob_name, new_prefix):
     blob.delete()
 
 
+def delete_stale_failed_copy(bucket_name, blob_name):
+    """Best-effort: once this filename has successfully reprocessed, remove
+    any earlier failed copy sitting under FAILED_PREFIX, so a fixed file
+    doesn't leave what looks like an unresolved failure there forever."""
+    try:
+        filename = blob_name.split("/")[-1]
+        failed_path = f"{FAILED_PREFIX}/{filename}"
+        blob = storage_client.bucket(bucket_name).blob(failed_path)
+        if blob.exists():
+            blob.delete()
+            print(f"Deleted stale failed-processing copy: {failed_path}")
+    except Exception as cleanup_exc:
+        print(f"Failed to delete stale failed-processing copy (pipeline result unaffected): {cleanup_exc}")
+
+
 def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
                     rows_rejected, error_message):
     """Best-effort manifest row. Never allowed to fail the pipeline run."""
@@ -374,6 +389,8 @@ def process_file(cloud_event):
         print(f"Loaded {len(df)} rows to {table_id}")
 
         move_blob(bucket_name, blob_name, PROCESSED_PREFIX)
+
+        delete_stale_failed_copy(bucket_name, blob_name)
 
         write_row_errors(row_errors, source_file=gcs_uri, checksum=checksum)
 

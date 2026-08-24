@@ -322,28 +322,150 @@ directly and confirmed the log-based metric extracted all five labels
 correctly for all three test incidents, with no truncation on the long
 `error` fields.
 
-**Not yet confirmed: actual email delivery.** Asked Peter to check
-peter@notpla.com for 3 alert emails (one via each policy, all three attached
-to Peter's channel). Session paused here before he could check - **this is
-the exact next step for the next session.** If Peter confirms all 3 arrived
-correctly:
-1. Ask Katie and Emily whether their own alert email arrived too (I can only
-   verify Peter's inbox; the channel bindings were confirmed correct via
-   `gcloud alpha monitoring channels describe`, but never independently
-   confirmed by them receiving it).
-2. Clean up test artifacts: delete the 3 test files from each pipeline's
+**Email delivery confirmed (24 August 2026).** All 3 test alert emails
+arrived correctly: Peter's inbox (all three policies attach to his channel),
+plus Katie's and Emily's own channels each received their routed copy.
+Remaining from the original plan, not yet done:
+1. Clean up test artifacts: delete the 3 test files from each pipeline's
    failed-processing folder, delete the 3 test rows from
    `films_pipeline_manifest`, and delete the 3 test rows from
    `films_pipeline_alerts_sent` (mind the streaming-buffer delete restriction
    again, same as the 1.2 cleanup).
-3. Update this file's Current state and `pipeline-roadmap.md`'s Done list to
-   mark 1.3 fully complete.
-
-If something arrived wrong (missing, mis-routed, garbled), investigate before
-any cleanup - the live test artifacts are exactly what's needed to debug it.
+2. Update `pipeline-roadmap.md`'s Done list to mark 1.3 fully complete.
 
 Nothing in this build touched or risked existing data: no changes to the
 three processors, the manifest table, or the row-errors table.
+
+### Resolved: pipeline alert email UX (24 August 2026)
+
+Same motivation as the extrusion redesign below, applied to the 3 routed
+policies (Katie/Emily/default): the raw Cloud Monitoring line and the
+original documentation were too technical for Katie and Emily to self-serve
+from. Reworked using the same two-tier pattern (plain-language summary,
+then a technical section), plus three things new to this pass:
+
+- **Readable pipeline names.** `main.py` now maps `tensile`/`friction`/
+  `extrusion` to "Tensile Testing"/"Friction Testing"/"Extrusion" and prints
+  it as a new `pipeline_readable` field in the `PIPELINE_FAILURE_ALERT` log
+  line (Cloud Monitoring's doc template can't do conditional text, so this
+  had to be computed upstream, not templated). Deployed as
+  `films-pipeline-failure-alerter-00003-qis`.
+- **A real failure timestamp.** Added `failed_at`, sourced from the
+  manifest's `processed_at` (when the file actually failed), not Cloud
+  Monitoring's built-in "Start time" field (when the hourly check happened
+  to notice, up to ~60 minutes later, and which can't be relabelled or
+  removed, it's fixed platform chrome above our custom content).
+- **Subject line carries the plain-language framing.** Policy
+  `displayName` drives the email subject, so that's now "Notpla Data
+  Pipeline Warning: routed to Katie" etc., rather than the technical
+  condition text. The fixed Cloud Monitoring summary line still appears
+  above our content in the body, unavoidably; the subject and everything
+  below it now lead in plain English instead.
+- **Resolved/closed email suppressed.** `alertStrategy.notificationPrompts`
+  set to `[OPENED]` on all three policies. The auto-close notification
+  fired whenever no *new* failure landed in the next check window, not
+  when the file was actually fixed, so it was actively misleading and has
+  been turned off rather than reworded.
+
+New `pipeline_failure_alert` metric labels: `pipeline_readable`,
+`failed_at`, alongside the existing `pipeline`, `file`, `route`, `reason`,
+`error`. Extractor regexes verified against a synthetic log line before
+deploying (all 7 fields extracted cleanly, no truncation).
+
+Row numbers were explicitly considered and dropped: this alert only fires
+on whole-file failures (`manifest.status='failed'`), there is no single bad
+row to point at. Row-level detail only exists for the separate, non-alerting
+`films_pipeline_row_errors` path (a file that partially succeeded).
+
+### Resolved: auto-cleanup and repeat-failure escalation (24 August 2026)
+
+Both follow-on features from the email UX pass, now built, deployed, and
+verified live end-to-end (not just locally).
+
+**1. Auto-delete stale failed copy on successful reprocessing.** All three
+processors (`films-tensile-csv-processor-00017-san`,
+`films-friction-csv-processor-00008-ziq`,
+`films-extrusion-csv-processor-00011-qok`) now call a
+`delete_stale_failed_copy` helper right after a successful move to
+`*-processed/`: if a file of the same name exists under `*-failed-processing/`,
+it's deleted, best-effort, matching the existing manifest/row-errors
+wrapped-try pattern. Needed because `move_blob` writes to
+`{FAILED_PREFIX}{filename}` with no uniquifier, so a fixed file's success
+never used to clean up the old failed copy sitting under a different
+prefix.
+
+**2. Repeat-failure escalation.** The alerter
+(`films-pipeline-failure-alerter-00004-muw`) now looks up, for every new
+failure, the most recent prior manifest row for the same pipeline+filename
+via a new `find_previous_failure` query. If that prior row was also
+`status='failed'` (no successful ingest for that filename since), it prints
+a second, distinct `PIPELINE_FAILURE_ESCALATION` log line alongside the
+normal `PIPELINE_FAILURE_ALERT` line, carrying both the current and
+previous error messages and timestamps. Backed by a new log-based metric
+`pipeline_failure_escalation` and a new alert policy (severity ERROR,
+routed to Peter only, `notificationPrompts: [OPENED]`,
+`projects/notpla-machine-data/alertPolicies/2248087195614091607`). Matched
+on filename rather than checksum, since a fixed re-upload is a new
+checksum; the documented fix procedure (see the Katie/Emily/default policy
+docs) keeps the filename unchanged, which is what makes filename matching
+reliable. Detected via manifest history, not by checking for two files on
+disk: `copy_blob` to an existing destination name in GCS silently
+overwrites it (versioning is Suspended), so the "two files with the same
+name" state a same-name repeat failure was originally expected to produce
+never actually occurs, filename-based manifest lookup is the reliable
+signal instead.
+
+**Two real bugs found and fixed during this build, both introduced by this
+build:**
+- The `error=(.*)"` label extractor for the escalation metric initially
+  matched *inside* `previous_error=` (which contains the substring
+  `error=`), corrupting the current error field. Caught by testing the
+  regex against a realistic string before deploying, not live. Fixed by
+  anchoring on `" error="` (leading space) instead.
+- `delete_stale_failed_copy` in the tensile processor originally called
+  `logger.info(..., extra={"filename": filename})`. Python's `logging`
+  module reserves `filename` as a built-in `LogRecord` attribute, so this
+  raised `Attempt to overwrite 'filename' in LogRecord` on every call,
+  which (since it fired after the BigQuery load and file move had already
+  succeeded) caused an otherwise-successful reprocess to be logged as a
+  manifest failure. Caught live during verification testing, not by code
+  review. Fixed by renaming the extra key to `target_filename`, redeployed
+  as `films-tensile-csv-processor-00017-san` (the revision number above
+  already reflects the fix, not the bug).
+
+**Verified live**, using disposable synthetic files, same convention as
+every other phase in this project: uploaded a bad file, confirmed it
+failed; re-uploaded a fixed version under the same name, confirmed success
+and confirmed the stale failed-processing copy was actually deleted (not
+just logically expected to be); uploaded two different-content bad files in
+a row under a second test filename, manually invoked the alerter, and
+confirmed via the function logs and a direct Monitoring API query that the
+escalation metric fired with all seven labels extracted correctly and
+uncorrupted, including on real (not synthetic) error text from the bugs
+above.
+
+Test artifacts partially cleaned up: the two duplicate rows written to the
+real `films_tensile_results` table (`sample=999999001`, a byproduct of the
+logging bug above causing one successful reprocess to be retried) were
+deleted, and both test files were deleted from GCS. **Still pending, same
+streaming-buffer restriction as every prior phase:** 5 manifest rows and 4
+alerts_sent rows for `source_file LIKE '%alert_test_cleanup_20260824_1900.csv%'`
+or `'%alert_test_escalation_20260824_1900.csv%'` are stuck in the streaming
+buffer (inserted ~19:00-19:06 UTC, 24 August). Delete once the buffer
+clears (up to ~90 minutes after insert):
+```sql
+DELETE FROM `notpla-machine-data.films_pipeline_ops.films_pipeline_manifest`
+WHERE source_file LIKE '%alert_test_cleanup_20260824_1900.csv%'
+   OR source_file LIKE '%alert_test_escalation_20260824_1900.csv%'
+```
+```sql
+DELETE FROM `notpla-machine-data.films_pipeline_ops.films_pipeline_alerts_sent`
+WHERE source_file LIKE '%alert_test_cleanup_20260824_1900.csv%'
+   OR source_file LIKE '%alert_test_escalation_20260824_1900.csv%'
+```
+
+One live escalation email should have gone to peter@notpla.com from the
+verification test above; not yet confirmed by Peter reading his inbox.
 
 ### Resolved: extrusion alert email UX (24 August 2026)
 

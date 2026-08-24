@@ -40,6 +40,19 @@ def write_manifest(project_id, source_file, checksum, status, rows_total,
         print(f"Manifest insert failed (pipeline result unaffected): {manifest_exc}")
 
 
+def delete_stale_failed_copy(bucket, failed_path):
+    """Best-effort: once this filename has successfully reprocessed, remove
+    any earlier failed copy sitting at failed_path, so a fixed file doesn't
+    leave what looks like an unresolved failure there forever."""
+    try:
+        blob = bucket.blob(failed_path)
+        if blob.exists():
+            blob.delete()
+            print(f"Deleted stale failed-processing copy: {failed_path}")
+    except Exception as cleanup_exc:
+        print(f"Failed to delete stale failed-processing copy (pipeline result unaffected): {cleanup_exc}")
+
+
 def write_row_errors(project_id, row_errors, source_file, checksum):
     """Best-effort row-errors write. Never allowed to fail the pipeline run."""
     if not row_errors:
@@ -213,6 +226,8 @@ def gcs_csv_to_bigquery(data, context):
         blob.delete()
 
         print(f"SUCCESS -> {processed_path}")
+
+        delete_stale_failed_copy(bucket, failed_path)
 
         write_row_errors(PROJECT_ID, row_errors, source_file=gcs_uri, checksum=checksum)
 
