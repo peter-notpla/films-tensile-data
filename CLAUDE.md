@@ -214,6 +214,22 @@ not something checkable from this session):
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
 
+---
+
+## In progress: pass-filter roll extrusion lookup
+
+Separate from the alerting pipeline work above. Building a per-roll
+Torque/Die Pressure/Melt Temperature lookup against
+`machine_collin_e25e.raw_films_extrusion` for the 8 filtered tensile pass
+tables in `gs://notpla-machine-data/claude/peter-files/tensile-exports/`.
+
+**Blocked on Peter as of 26 August 2026**: 18 of 36 rolls across those
+tables have no exact match in the extrusion table, including one likely
+ID swap between two pellets and a June-2026 coverage gap in the extrusion
+table. Full findings, confirmed output format, and the exact list of rolls
+needing resolution are in `pass-filter-extrusion-lookup.md`. Once resolved,
+build the 8 output tables per that file's spec.
+
 Genuine backlogs, deliberately untouched:
 - 738 friction raw files failed, no processor deployed
 - 197 friction raw files queued
