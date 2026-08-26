@@ -31,6 +31,21 @@ phases mostly cannot.
   file (tensile's timestamp fallback, friction's raise-on-blank-sample and
   its first-column-only blank filter); verified live end to end
   (24 August 2026)
+- Built and deployed the hourly first-sighting alert (1.3): routes by
+  `user_initials` to Katie, Emily, or a default recipient, deduplicated via
+  an alerts-sent log; verified live end to end including real email
+  delivery to all three recipients (24 August 2026)
+- Reworked all pipeline alert emails for a non-technical audience: plain-
+  language summary ahead of technical detail, readable pipeline names, real
+  failure timestamps, and resolved/closed notifications suppressed
+  (24 August 2026)
+- Added auto-deletion of stale failed-processing copies on successful
+  reprocessing, and a repeat-failure escalation alert for files that fail
+  twice under the same name; verified live end to end (24 August 2026)
+- Fixed alert email subject lines (condition `displayName`, not policy
+  `displayName`, drives the subject) and suppressed the extrusion policy's
+  leftover "recovered" emails, the one policy the earlier UX pass missed
+  (24 August 2026)
 
 ---
 
