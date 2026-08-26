@@ -46,6 +46,12 @@ phases mostly cannot.
   `displayName`, drives the subject) and suppressed the extrusion policy's
   leftover "recovered" emails, the one policy the earlier UX pass missed
   (24 August 2026)
+- Built and deployed the Friday morning digest (1.4): one email per test
+  type covering the last 7 days (files processed/failed, specimens
+  ingested) plus the true most-recent-test date pulled from each pipeline's
+  own results table, to catch a machine gone silent even when nothing ever
+  reaches the failed folder; verified end to end via a real scheduler
+  invocation, email delivery not yet confirmed by Peter (26 August 2026)
 
 ---
 

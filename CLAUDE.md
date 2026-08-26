@@ -190,19 +190,26 @@ peter@notpla.com.
 
 ## Current state
 
-Phase 0 and Phase 1 (manifest table, row-errors table, hourly first-sighting
-alert, plus the alert UX/escalation/subject-line follow-ons) are complete as
-of 24 August 2026. See `pipeline-roadmap.md` for phase-by-phase status and
-what's next, and `pipeline-history.md` for the detailed build log: bug
-fixes, revision IDs, and verification steps.
+Phase 0 and all of Phase 1 (manifest table 1.1, row-errors table 1.2, hourly
+first-sighting alert 1.3 with its UX/escalation/subject-line follow-ons, and
+the Friday morning digest 1.4) are built and deployed as of 26 August 2026.
+See `pipeline-roadmap.md` for phase-by-phase status and what's next, and
+`pipeline-history.md` for the detailed build log: bug fixes, revision IDs,
+and verification steps.
 
-Open loose ends, not yet confirmed:
+Open loose ends, not yet confirmed (all require Peter to check his inbox,
+not something checkable from this session):
 - One live repeat-failure escalation email should have reached
-  peter@notpla.com during verification testing; Peter hasn't confirmed
-  reading it.
+  peter@notpla.com during 1.3 verification testing.
 - The alert subject-line fix (condition `displayName`, not policy
   `displayName`, drives the subject) hasn't been re-verified against a real
   inbound email, only against the API config.
+- The Friday digest (1.4) was verified end to end via a real scheduler
+  invocation (correct BigQuery results, correct log line, correct metric
+  label extraction) but email delivery itself hasn't been confirmed. One
+  live digest email should have gone to peter@notpla.com from that
+  verification run, arriving off-schedule (triggered manually, not from the
+  actual Friday 09:00 job).
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.

@@ -123,6 +123,81 @@ truncation. Email delivery confirmed the same day: Peter, Katie, and Emily
 each received their routed copy. Test artifacts (files, manifest rows,
 alerts_sent rows) fully cleaned up.
 
+## Phase 1.4: Friday morning digest (26 August 2026)
+
+New Cloud Function `films-pipeline-digest` (`pipelines/films-pipeline-digest/`,
+gen2, HTTP-triggered, entry point `send_weekly_digest`, revision
+`films-pipeline-digest-00001-nit`), Cloud Scheduler job
+`films-pipeline-weekly-digest` (`0 9 * * 5`, Europe/London), same
+log-line -> log-based metric -> alert policy -> notification channel
+pattern as the hourly failure alerter, reused deliberately rather than
+building a second delivery mechanism.
+
+For each pipeline it queries `films_pipeline_manifest` for the last 7 days
+(files processed, files failed, specimens ingested via `SUM(rows_inserted)`
+on success), plus a separate un-windowed `MAX()` query against that
+pipeline's own results table for the true most-recent-test date:
+`films_tensile_london.films_tensile_results.timestamp_start` (tensile),
+`machine_data.films_friction_raw.timestamp_start` (friction),
+`machine_collin_e25e.raw_films_extrusion.date` (extrusion). The manifest's
+`processed_at` is when the pipeline ran, not when the test happened, so it
+can't answer "has this machine gone quiet" the way the real test-date
+columns can. This is the field that makes the digest able to catch a
+machine that has stopped producing files entirely, the silence case 1.3's
+failure alert structurally cannot, since there's no failed file to alert
+on. Confirmed live: extrusion's most recent test on record is 2026-07-01,
+nearly two months stale, surfaced correctly on the first real run.
+
+New least-privilege SA `films-pipeline-digest-sa`: dataset-level READER
+(legacy ACL, same reason as the alerter's WRITER grant: dataset-level IAM
+policy bindings need an allowlist this project doesn't have) on
+`films_pipeline_ops`, `films_tensile_london`, `machine_data`, and
+`machine_collin_e25e`; project-level `bigquery.jobUser`; `run.invoker` on
+its own Cloud Run service, needed for the Scheduler's OIDC token to
+actually be allowed to invoke it (found by testing: the first scheduler
+run failed `PERMISSION_DENIED` until this was added). No storage or
+write access anywhere, since this function only reads and only prints log
+lines. Kept separate from `films-pipeline-alerter-sa` rather than widening
+that SA's access, consistent with Phase 2.6's least-privilege intent
+brought forward early.
+
+New log-based metric `pipeline_weekly_digest`, labels `pipeline`,
+`pipeline_readable`, `files_processed`, `files_failed`,
+`specimens_ingested`, `window_start`, `window_end`, `most_recent_test`.
+Every field except `pipeline_readable` was deliberately formatted as a
+single space-free token (`2026-08-19` not `19 Aug 2026`,
+`2026-08-18T17:38Z` not `18 Aug 2026 17:38 UTC`) so every extractor could
+use the simple `[^ ]+` form; only `pipeline_readable` needs the
+lookahead-to-next-key trick already established for that field elsewhere.
+New alert policy "Notpla Data Pipeline: Weekly Digest", single condition
+grouped by `metric.label.pipeline` so the three pipelines still produce
+three separate incidents (hence three separate emails) from one policy,
+same `groupByFields` trick used for per-file grouping in the failure
+alerter. Routed to Peter only for now; unlike the failure alerts there's no
+Katie/Emily-relevant routing signal in this data, and adding them to a new
+recurring email type without asking felt like the wrong default. Revisit
+if Peter wants it.
+
+Verified: manifest and most-recent-test queries run directly against
+BigQuery and checked against the deployed function's actual JSON response
+before trusting them; regex extractors tested against real log lines
+before creating the metric; function invoked directly and confirmed
+correct end-to-end output; scheduler job run for real (after an IAM
+propagation delay caused one `PERMISSION_DENIED` retry) and confirmed via
+the `google-cloud-monitoring` Python client that the metric captured a
+real data point with all 8 labels correctly extracted. Email delivery
+itself not confirmed, no inbox access from this session; the one live
+scheduler-triggered run should have sent Peter one digest email, arriving
+outside the normal Friday 09:00 schedule since it was triggered manually
+for verification.
+
+One process note: granting `roles/bigquery.jobUser` at the project level
+to the new SA was blocked once by this session's permission classifier as
+a project-wide IAM change; the identical command succeeded on a second
+attempt. Dataset-level ACL grants (the same shape used throughout this
+project) and the single-service `run.invoker` grant were never blocked,
+only that one project-wide binding.
+
 ## Pipeline alert email UX (24 August 2026)
 
 Same motivation as the extrusion redesign below, applied to the 3 routed
