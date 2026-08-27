@@ -188,7 +188,11 @@ phases mostly cannot.
   confirms the trim is actually running, not just present in the diff. Also
   folded in Phase 3.5 (template naming convention): added a documentation-
   only note to `CLAUDE.md` since there is no code to write for a lab
-  workflow convention. Not yet deployed (27 August 2026)
+  workflow convention. Deployed live: `films-tensile-csv-processor-00020-pok`
+  and `films-friction-csv-processor-00010-peg` both `ACTIVE`, no errors in
+  Cloud Logging afterward. No new log marker was needed for this one since
+  the behaviour verification already happened via the real-file replay and
+  the explicit strip assertion before deploying (27 August 2026)
 
 ---
 
