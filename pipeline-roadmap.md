@@ -264,7 +264,8 @@ phases mostly cannot.
   source string. Verified against all 274 real friction files: 0 parse
   errors. `main.py` needed no changes - it loads whatever columns the
   parser produces - confirmed by a full `import main` against the staged
-  `shared/`. Not yet deployed (27 August 2026)
+  `shared/`. Deployed live: `films-friction-csv-processor-00012-zit`
+  `ACTIVE`, no errors in Cloud Logging afterward (27 August 2026)
 
 ---
 
