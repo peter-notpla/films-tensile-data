@@ -210,8 +210,9 @@ phases mostly cannot.
   fixed list, which resists a fixed-list diff; Phase 2.4 (typed columns) is
   the real fix for friction's schema looseness, not this tool. Verified
   the tensile refactor against all 526 real files (0 parse errors,
-  unchanged) and confirmed the shared import still resolves staged. Not yet
-  deployed (27 August 2026)
+  unchanged) and confirmed the shared import still resolves staged.
+  Deployed live: `films-tensile-csv-processor-00021-voz` `ACTIVE`, no
+  errors in Cloud Logging afterward (27 August 2026)
 
 ---
 
