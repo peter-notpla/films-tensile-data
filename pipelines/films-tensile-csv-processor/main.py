@@ -7,7 +7,7 @@ import pandas as pd
 from google.cloud import storage
 from google.cloud import bigquery
 
-from shared.tensile_parser import extract_relevant_dataframe
+from shared.tensile_parser import extract_relevant_dataframe, TABLE_COLUMNS
 
 
 # ---------------- Config ----------------
@@ -57,28 +57,7 @@ def load_to_bigquery(df: pd.DataFrame) -> int:
     table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
 
     # Ensure columns match BigQuery schema order
-    df = df[
-        [
-            "sample",
-            "youngs_modulus_mpa",
-            "offset_yield_mpa",
-            "max_load_n",
-            "max_stress_mpa",
-            "break_pct",
-            "toughness_mpa",
-            "timestamp_start",
-            "pellet_id",
-            "extrusion_id",
-            "test_direction",
-            "sample_number",
-            "sample_thickness_mm",
-            "relative_humidity_pct",
-            "notes",
-            "user_initials",
-            "source_file",
-            "processed_at",
-        ]
-    ].copy()
+    df = df[TABLE_COLUMNS].copy()
 
     job = client.load_table_from_dataframe(
         df,

@@ -193,6 +193,25 @@ phases mostly cannot.
   Cloud Logging afterward. No new log marker was needed for this one since
   the behaviour verification already happened via the real-file replay and
   the explicit strip assertion before deploying (27 August 2026)
+- **Checkpoint B, Phase 2.3 (schema drift-check tooling), done for tensile
+  and extrusion.** Not a live migration tool - a repeatable check, since a
+  migration tool implies a target to migrate to and there isn't one here,
+  just three places that can silently disagree. Added `TABLE_COLUMNS` to
+  `shared/tensile_parser.py` (tensile didn't have one; its column list only
+  ever existed inline in `main.py`'s `load_to_bigquery()`), and switched
+  `main.py` to import it instead of holding its own copy - one fewer place
+  for tensile's schema to drift, mirroring what `shared/extrusion_parser.py`
+  already had. Built `shared/verify_schema_drift.py`, which queries each
+  live BigQuery table's actual schema and diffs it against the parser's
+  `TABLE_COLUMNS`, run against both tensile and extrusion: **no unexpected
+  drift in either**, tensile's known `row_num` fossil correctly excluded by
+  design and reported as such rather than flagged. Friction deliberately
+  not covered - its parser keeps whatever columns survive rather than a
+  fixed list, which resists a fixed-list diff; Phase 2.4 (typed columns) is
+  the real fix for friction's schema looseness, not this tool. Verified
+  the tensile refactor against all 526 real files (0 parse errors,
+  unchanged) and confirmed the shared import still resolves staged. Not yet
+  deployed (27 August 2026)
 
 ---
 

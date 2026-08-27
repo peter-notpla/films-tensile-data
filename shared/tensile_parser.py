@@ -15,6 +15,32 @@ import pandas as pd
 
 FOOTER_LABELS = {"mean", "sd", "min", "max"}
 
+# The single definition of films_tensile_results' column set (Phase 2.3).
+# main.py's load_to_bigquery() selects and orders by this instead of holding
+# its own copy. Deliberately excludes row_num: that column exists on the
+# live table but nothing has populated it in years, a fossil from before
+# this pipeline's current form, not a current field to perpetuate.
+TABLE_COLUMNS = [
+    "sample",
+    "youngs_modulus_mpa",
+    "offset_yield_mpa",
+    "max_load_n",
+    "max_stress_mpa",
+    "break_pct",
+    "toughness_mpa",
+    "timestamp_start",
+    "pellet_id",
+    "extrusion_id",
+    "test_direction",
+    "sample_number",
+    "sample_thickness_mm",
+    "relative_humidity_pct",
+    "notes",
+    "user_initials",
+    "source_file",
+    "processed_at",
+]
+
 
 def _is_footer_row(first_cell: str) -> bool:
     if first_cell is None:
