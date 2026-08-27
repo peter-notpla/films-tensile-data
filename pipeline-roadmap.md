@@ -348,8 +348,11 @@ phases mostly cannot.
   plausible, not universal like the false positive would have been).
   Confirmed `import main` succeeds for tensile and friction against
   staged `shared/`; extrusion checked via compile only, same
-  `functions_framework`-not-installed gap as every prior checkpoint. Not
-  yet deployed (27 August 2026)
+  `functions_framework`-not-installed gap as every prior checkpoint.
+  Deployed live: `films-tensile-csv-processor-00024-pol`,
+  `films-friction-csv-processor-00014-yim`,
+  `films-extrusion-csv-processor-00015-nex`, all three `ACTIVE`, no errors
+  in Cloud Logging afterward (27 August 2026)
 
 ## Phase 0: stop active harm
 
