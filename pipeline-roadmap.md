@@ -319,8 +319,37 @@ phases mostly cannot.
   `films-friction-csv-processor-00013-cah`,
   `films-extrusion-csv-processor-00014-cav`, all three `ACTIVE`, no errors
   in Cloud Logging afterward (27 August 2026)
-
----
+- **Checkpoint F, Phase 3.3 (Excel detection), done for tensile and
+  friction; deliberately not applied to extrusion.** Added
+  `excel_processed` BOOL to the shared `films_pipeline_manifest` table
+  (one schema change covers all three pipelines, since it's a file-level
+  property, not per-specimen; snapshotted first). Built
+  `shared/excel_detection.py` as the single definition of both signals (row
+  1 ending in comma padding; every present timestamp having zero seconds).
+  Computed in `main.py`, not the parsers: a padding-only pre-check runs
+  right after download so it's available even when parsing fails outright
+  (a padded row 1 can itself be the cause of the failure), then refined
+  with the timestamp signal after a successful parse. `write_manifest()`
+  gained an `excel_processed` parameter in all three pipelines. **Caught
+  before deploying**: extrusion's row 1 is a real section-header row
+  (`Film Thickness Profile Average,,,Pellets QC,,,...`) that legitimately
+  ends in a comma by normal structure, not as an Excel artifact - all 6
+  real processed extrusion files "flagged" on the padding signal alone,
+  a 100% rate that was the tell it was a false positive rather than a
+  finding. Extrusion also has no seconds-resolution timestamp field to
+  fall back on, and its source machine was never part of the "opened in
+  Excel during the manual check" workflow `CLAUDE.md` describes for the
+  Mecmesin tensile tester's VectorPro exports in the first place, so
+  extrusion's `excel_processed` is left `NULL` always, not computed.
+  Validated the detection logic in isolation (synthetic all-zero /
+  non-zero / mixed-seconds timestamps, padded / clean row 1: all five
+  cases behaved exactly as expected) and against real files (tensile: 4
+  of 20 sampled flagged, friction: 0 of 20 sampled flagged - both
+  plausible, not universal like the false positive would have been).
+  Confirmed `import main` succeeds for tensile and friction against
+  staged `shared/`; extrusion checked via compile only, same
+  `functions_framework`-not-installed gap as every prior checkpoint. Not
+  yet deployed (27 August 2026)
 
 ## Phase 0: stop active harm
 

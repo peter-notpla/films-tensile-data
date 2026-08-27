@@ -8,6 +8,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 
 from shared.tensile_parser import extract_relevant_dataframe, TABLE_COLUMNS
+from shared.excel_detection import is_excel_processed
 
 
 # ---------------- Config ----------------
@@ -95,7 +96,7 @@ def delete_stale_failed_copy(bucket_name: str, filename: str) -> None:
 
 
 def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
-                    rows_rejected, error_message):
+                    rows_rejected, error_message, excel_processed=None):
     """Best-effort manifest row. Never allowed to fail the pipeline run."""
     try:
         client = bigquery.Client(project=PROJECT_ID)
@@ -110,6 +111,7 @@ def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
             "rows_rejected": rows_rejected,
             "error_message": error_message,
             "processed_at": datetime.now(timezone.utc).isoformat(),
+            "excel_processed": excel_processed,
         }
         errors = client.insert_rows_json(MANIFEST_TABLE, [row])
         if errors:
@@ -163,10 +165,17 @@ def process_gcs_event(event, context=None):
     gcs_uri = f"gs://{bucket}/{name}"
     checksum = None
 
+    excel_processed = None
+
     try:
         csv_bytes = blob.download_as_bytes()
         checksum = hashlib.md5(csv_bytes).hexdigest()
+        # Padding-only pre-check, available even if parsing fails below (a
+        # padded row 1 can itself be the cause of a parse failure).
+        excel_processed = is_excel_processed(csv_bytes)
         df, rows_dropped, row_errors = extract_relevant_dataframe(csv_bytes, source_file=name)
+        # Refine with the timestamp signal now that parsing succeeded.
+        excel_processed = is_excel_processed(csv_bytes, df["timestamp_start"])
 
         rows = load_to_bigquery(df)
 
@@ -188,6 +197,7 @@ def process_gcs_event(event, context=None):
             rows_inserted=rows,
             rows_rejected=rows_dropped,
             error_message=None,
+            excel_processed=excel_processed,
         )
 
     except Exception as exc:
@@ -207,6 +217,7 @@ def process_gcs_event(event, context=None):
             rows_inserted=0,
             rows_rejected=0,
             error_message=str(exc)[:1500],
+            excel_processed=excel_processed,
         )
 
         raise

@@ -8,6 +8,18 @@ from google.cloud import bigquery, storage
 
 from shared.extrusion_parser import extract_extrusion_dataframe
 
+# Phase 3.3: Excel detection deliberately does not apply here. Row 1 of an
+# extrusion export is a real section-header row (e.g. "Film Thickness
+# Profile Average,,,Pellets QC,,,...") that legitimately ends in a comma by
+# normal structure, not as an Excel artifact - confirmed by checking every
+# real processed extrusion file, all 6 of which "flagged" on that signal
+# alone, a 100% rate that was the tell it was a false positive, not a real
+# finding. Extrusion also has no seconds-resolution timestamp field to fall
+# back on (raw_films_extrusion's "date" is a DATE, no time-of-day). Unlike
+# tensile/friction, extrusion's source machine (Collin E25E) isn't part of
+# the "opened in Excel during the manual check step" workflow CLAUDE.md
+# describes for the Mecmesin tensile tester's VectorPro exports.
+
 
 PROJECT_ID = os.environ["PROJECT_ID"]
 BQ_DATASET = os.environ["BQ_DATASET"]
@@ -51,7 +63,7 @@ def delete_stale_failed_copy(bucket_name, blob_name):
 
 
 def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
-                    rows_rejected, error_message):
+                    rows_rejected, error_message, excel_processed=None):
     """Best-effort manifest row. Never allowed to fail the pipeline run."""
     try:
         row = {
@@ -65,6 +77,7 @@ def write_manifest(source_file, checksum, status, rows_total, rows_inserted,
             "rows_rejected": rows_rejected,
             "error_message": error_message,
             "processed_at": datetime.now(timezone.utc).isoformat(),
+            "excel_processed": excel_processed,
         }
         errors = bq_client.insert_rows_json(MANIFEST_TABLE, [row])
         if errors:
@@ -112,12 +125,15 @@ def process_file(cloud_event):
 
     gcs_uri = f"gs://{bucket_name}/{blob_name}"
     checksum = None
+    excel_processed = None
 
     try:
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
         content = blob.download_as_bytes()
         checksum = hashlib.md5(content).hexdigest()
+        # excel_processed intentionally stays None for extrusion - see the
+        # module-level comment on the excel_detection import removal above.
 
         df, rows_dropped, row_errors = extract_extrusion_dataframe(
             content, source_file=blob_name.split("/")[-1]
@@ -144,6 +160,7 @@ def process_file(cloud_event):
             rows_inserted=len(df),
             rows_rejected=rows_dropped,
             error_message=None,
+            excel_processed=excel_processed,
         )
 
     except Exception as exc:
@@ -185,6 +202,7 @@ def process_file(cloud_event):
             rows_inserted=0,
             rows_rejected=0,
             error_message=str(exc)[:1500],
+            excel_processed=excel_processed,
         )
 
         raise

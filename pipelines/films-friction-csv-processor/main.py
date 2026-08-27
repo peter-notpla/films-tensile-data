@@ -8,6 +8,7 @@ from google.cloud import bigquery
 from google.cloud import storage
 
 from shared.friction_parser import extract_friction_dataframe
+from shared.excel_detection import is_excel_processed
 
 
 PIPELINE_NAME = "friction"
@@ -17,7 +18,7 @@ print("PHASE_4_CUTOVER: friction parsing now sourced from shared.friction_parser
 
 
 def write_manifest(project_id, source_file, checksum, status, rows_total,
-                    rows_inserted, rows_rejected, error_message):
+                    rows_inserted, rows_rejected, error_message, excel_processed=None):
     """Best-effort manifest row. Never allowed to fail the pipeline run."""
     try:
         client = bigquery.Client(project=project_id)
@@ -33,6 +34,7 @@ def write_manifest(project_id, source_file, checksum, status, rows_total,
             "rows_rejected": rows_rejected,
             "error_message": error_message,
             "processed_at": datetime.now(timezone.utc).isoformat(),
+            "excel_processed": excel_processed,
         }
         errors = client.insert_rows_json(table_id, [row])
         if errors:
@@ -105,6 +107,7 @@ def gcs_csv_to_bigquery(data, context):
     failed_path = f"{FAILED_PREFIX}{filename}"
     gcs_uri = f"gs://{bucket_name}/{blob_name}"
     checksum = None
+    excel_processed = None
 
     try:
         print(f"Processing gs://{bucket_name}/{blob_name}")
@@ -121,8 +124,13 @@ def gcs_csv_to_bigquery(data, context):
 
         os.remove(tmp_path)
 
+        # Padding-only pre-check, available even if parsing fails below (a
+        # padded row 1 can itself be the cause of a parse failure).
+        excel_processed = is_excel_processed(content)
         df, rows_dropped, row_errors = extract_friction_dataframe(content, source_file=gcs_uri)
         rows_total = len(df) + rows_dropped
+        # Refine with the timestamp signal now that parsing succeeded.
+        excel_processed = is_excel_processed(content, df["timestamp_start"])
 
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
         job = bq_client.load_table_from_dataframe(df, table_id)
@@ -146,6 +154,7 @@ def gcs_csv_to_bigquery(data, context):
             rows_inserted=len(df),
             rows_rejected=rows_dropped,
             error_message=None,
+            excel_processed=excel_processed,
         )
 
     except Exception as e:
@@ -170,6 +179,7 @@ def gcs_csv_to_bigquery(data, context):
             rows_inserted=0,
             rows_rejected=0,
             error_message=str(e)[:1500],
+            excel_processed=excel_processed,
         )
 
         raise
