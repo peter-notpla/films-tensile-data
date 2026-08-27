@@ -53,6 +53,12 @@ TABLE_COLUMNS = [
     "timestamp_minute",
     "specimen_key",
     "validation_status",
+    "row_state",
+    "database_revision",
+    "archived_at",
+    "archived_by",
+    "revised_at",
+    "revised_by",
 ]
 
 

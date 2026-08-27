@@ -408,6 +408,59 @@ phases mostly cannot.
   `bigquery.dataEditor`, `bigquery.jobUser`, `eventarc.eventReceiver`,
   `storage.objectAdmin` - none of the compute default SA's project-wide
   `roles/editor` or its five other broad roles (27 August 2026)
+- **Checkpoint I, Phase 2.5 (metadata revision handling), code and
+  historical backfill done for tensile and friction; not applied to
+  extrusion.** A real finding changed the shape of this checkpoint before
+  any code was written: duplicate `specimen_key`s already existed in
+  production, 338 groups (858 rows) in tensile but **299 groups covering
+  3,104 of friction's 3,790 rows (82%)**. Pulling one group apart (82 rows,
+  one specimen, byte-identical measurements, different source filenames
+  with incrementing export timestamps) showed this wasn't corrections -
+  VectorPro re-exports a cumulative results table repeatedly during a test
+  session, so an early specimen reappears in every later export of the
+  same session, compounded by some historical reprocessing overlap. Given
+  the scale, stopped and asked before proceeding rather than assuming: user
+  chose a full historical backfill (most-recently-processed row per
+  `specimen_key` becomes `current`) plus a `_current`-filtered view for
+  Looker Studio, both built.
+
+  Schema: `films_tensile_results` and `films_friction_raw` both gained
+  `row_state`, `database_revision`, `archived_at`, `archived_by`,
+  `revised_at`, `revised_by` via `CREATE OR REPLACE TABLE AS SELECT` with
+  window functions (`ROW_NUMBER()`/`LEAD()` partitioned by `specimen_key`,
+  ordered by `processed_at`) rather than an `ALTER` + `UPDATE...FROM` join,
+  since rows sharing a `specimen_key` can also share an exact `processed_at`
+  (every row loaded from one file gets the same value), making a safe
+  per-row join key hard to guarantee; a full-table rebuild sidesteps that
+  entirely. Both tables snapshotted first
+  (`*_prerevision_20260827_150905`). Row counts unchanged after rebuild
+  (3,510 / 3,790). Verified the invariant holds exactly:
+  `COUNT(DISTINCT specimen_key) = COUNTIF(row_state="current")` for both
+  tables (2,990/2,990 tensile, 985/985 friction) - and tensile's 2,990
+  matches `CLAUDE.md`'s independently-documented "2,990 distinct keys with
+  zero conflations" exactly. Built
+  `films_tensile_london.films_tensile_results_current` and
+  `machine_data.films_friction_raw_current` views (`WHERE row_state =
+  "current"`) for Looker Studio to eventually point at.
+
+  Code: `shared/revision_handling.py` (`dedupe_within_file()`,
+  `apply_revision_handling()`) is the single definition, used by both
+  pipelines. Deliberately not a single `MERGE` statement - inserting the
+  new row must always happen, archiving an old one only conditionally,
+  which isn't what `MERGE`'s matched/not-matched semantics express cleanly
+  for a batch of several rows landing at once - so it's a live `UPDATE` to
+  archive superseded rows followed by the existing
+  `load_table_from_dataframe` append, unchanged. Column shape aligned to
+  Callum's `tensile_v21_results` pattern by name only, not his actual value
+  semantics (not available to read here) - reconcile once that
+  conversation happens. Built and ran `shared/verify_revision_handling.py`
+  (the dry-run this design explicitly required before wiring anything into
+  `main.py`) against 15 real files per pipeline: behaved exactly as the
+  history above predicts - tensile files showed 100% overlap with their
+  own already-current rows, friction files showed 0% (early-session
+  exports already superseded by later ones in the real data). Wired into
+  both `main.py`s between parsing and loading. Not yet deployed or live
+  end-to-end tested (27 August 2026)
 
 ---
 

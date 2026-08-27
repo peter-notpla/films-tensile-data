@@ -9,6 +9,7 @@ from google.cloud import storage
 
 from shared.friction_parser import extract_friction_dataframe
 from shared.excel_detection import is_excel_processed
+from shared.revision_handling import dedupe_within_file, apply_revision_handling
 
 
 PIPELINE_NAME = "friction"
@@ -128,11 +129,23 @@ def gcs_csv_to_bigquery(data, context):
         # padded row 1 can itself be the cause of a parse failure).
         excel_processed = is_excel_processed(content)
         df, rows_dropped, row_errors = extract_friction_dataframe(content, source_file=gcs_uri)
-        rows_total = len(df) + rows_dropped
         # Refine with the timestamp signal now that parsing succeeded.
         excel_processed = is_excel_processed(content, df["timestamp_start"])
 
+        # Metadata revision handling (Phase 2.5): a specimen already present
+        # as row_state='current' gets archived, this file's row becomes the
+        # new current one, instead of both existing as an undetected
+        # duplicate under plain append. dedupe_within_file must run first -
+        # two rows in one file both claiming 'current' for the same key
+        # would defeat the point.
+        df, row_errors = dedupe_within_file(df, row_errors)
+        if df.empty:
+            raise ValueError("No valid rows remain after removing within-file duplicate specimen_keys")
+        rows_dropped = len(row_errors)
+        rows_total = len(df) + rows_dropped
+
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
+        df = apply_revision_handling(df, bq_client, table_id, source_file=gcs_uri)
         job = bq_client.load_table_from_dataframe(df, table_id)
         job.result()
 

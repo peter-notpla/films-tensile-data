@@ -9,6 +9,7 @@ from google.cloud import bigquery
 
 from shared.tensile_parser import extract_relevant_dataframe, TABLE_COLUMNS
 from shared.excel_detection import is_excel_processed
+from shared.revision_handling import dedupe_within_file, apply_revision_handling
 
 
 # ---------------- Config ----------------
@@ -176,6 +177,21 @@ def process_gcs_event(event, context=None):
         df, rows_dropped, row_errors = extract_relevant_dataframe(csv_bytes, source_file=name)
         # Refine with the timestamp signal now that parsing succeeded.
         excel_processed = is_excel_processed(csv_bytes, df["timestamp_start"])
+
+        # Metadata revision handling (Phase 2.5): a specimen already present
+        # as row_state='current' gets archived, this file's row becomes the
+        # new current one, instead of both existing as an undetected
+        # duplicate under plain append. dedupe_within_file must run first -
+        # two rows in one file both claiming 'current' for the same key
+        # would defeat the point. Recompute rows_dropped: it may have grown.
+        df, row_errors = dedupe_within_file(df, row_errors)
+        if df.empty:
+            raise ValueError("No valid specimen rows remain after removing within-file duplicate specimen_keys")
+        rows_dropped = len(row_errors)
+
+        bq_client_for_revision = bigquery.Client(project=PROJECT_ID)
+        table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
+        df = apply_revision_handling(df, bq_client_for_revision, table_id, source_file=gcs_uri)
 
         rows = load_to_bigquery(df)
 
