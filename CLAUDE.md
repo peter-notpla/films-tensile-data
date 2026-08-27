@@ -5,6 +5,40 @@ of every session in this repository.
 
 ---
 
+## NEXT STEP (as at 27 August 2026, end of session): resume Phase 5 planning
+
+Peter left for the day mid-planning. Phase 5 (the friction curve problem -
+long-format curve data, one row per timepoint) has a **draft plan written
+but not yet approved or started**: `~/.claude/plans/joyful-waddling-taco.md`.
+Read that file first when resuming; it has the full design. Summary in case
+that file is ever cleaned up:
+
+- A draft pipeline already exists (`pipelines/films-friction-raw-processor/`,
+  never deployed) whose parsing logic is correct but whose config is wrong
+  (dataset mismatch, no Phase 1-4 patterns wired in).
+- Backlogs confirmed live: 741 friction files failed-processing, 196 queued,
+  1,224 tensile raw files, all sharing one 5-column curve format
+  (`Time (s), Load (N), Displacement (mm), Stress (MPa), Strain (%)`).
+- **The hard problem is linking a raw curve file back to its specimen, not
+  parsing it.** Sample number in the filename cannot be trusted - confirmed
+  empirically that both tensile's and friction's summary tables mix native
+  and historically-resequenced sample numbering unpredictably, with real
+  examples of raw files that don't match any current specimen row at all.
+- Peter's decision: store every curve point regardless of linking success -
+  nullable `linked_specimen_key`, populated only when a confident match is
+  found (GCS upload timestamp within a window of a specimen's
+  `timestamp_start`), NULL otherwise, with the actual time delta recorded
+  so confidence is judgeable later rather than trusted blindly.
+- Roadmap's own suggestion, reflected in the plan: build and verify against
+  the tensile backlog first (lower-stakes, same format, already unused),
+  then repeat for friction reusing the same shared parser/linker.
+
+Next action: review the plan file with Peter, get it approved (`ExitPlanMode`
+was interrupted by end-of-day, not rejected on merits), then start with
+checkpoint 1 - `shared/curve_parser.py` + `shared/curve_linking.py`.
+
+---
+
 ## What this project is
 
 The Notpla lab data pipeline. Test results from lab instruments flow into
