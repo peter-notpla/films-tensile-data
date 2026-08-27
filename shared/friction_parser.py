@@ -28,6 +28,26 @@ TIMESTAMP_FORMATS = [
 
 FOOTER_MARKERS = {"mean", "sd", "min", "max"}
 
+# Phase 2.4: films_friction_raw stores every measurement as STRING because
+# this parser never called pd.to_numeric. Additive fix - a typed "_num"
+# sibling is added for each of these (when the source column is present;
+# older files lack some of them, e.g. backup_static_cof per CLAUDE.md), the
+# original STRING columns are untouched so nothing downstream (Looker
+# Studio) breaks. SAFE_CAST is mirrored in BigQuery for the historical
+# backfill: blank/unparseable values become NULL, not an error, consistent
+# with flag-don't-reject.
+NUMERIC_COLUMNS = [
+    "static_friction_force_magnitude_1_n",
+    "backup_peak_n",
+    "dynamic_friction_force_n",
+    "static_coefficient_of_friction",
+    "backup_static_cof",
+    "dynamic_coefficientof_friction",
+    "sample_number_prompt_for_value_before_test",
+    "sample_repeat_number_prompt_for_value_before_test",
+    "pctrh_prompt_for_value_before_test",
+]
+
 # Identity constants for the specimen key model (Phase 2.2). Match main.py's
 # own MACHINE_ID/PIPELINE_NAME exactly; kept here too (a small, deliberate
 # duplication of two fixed strings, not the column-list kind of drift risk
@@ -147,6 +167,10 @@ def extract_friction_dataframe(csv_bytes: bytes, source_file: str):
 
     df["source_file"] = source_file
     df["processed_at"] = pd.Timestamp.now(tz="UTC")
+
+    for col in NUMERIC_COLUMNS:
+        if col in df.columns:
+            df[f"{col}_num"] = pd.to_numeric(df[col], errors="coerce")
 
     # Specimen key model (Phase 2.2). The %Y-%m-%dT%H:%M format is
     # deliberate and must stay in sync with the SQL backfill used for

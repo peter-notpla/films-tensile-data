@@ -242,6 +242,29 @@ phases mostly cannot.
   `films-tensile-csv-processor-00022-lad` and
   `films-friction-csv-processor-00011-xem`, both `ACTIVE`, no errors in
   Cloud Logging afterward (27 August 2026)
+- **Checkpoint D, Phase 2.4 (typed columns for friction), done.** Added a
+  `_num` FLOAT64 sibling for each of 9 numeric-measurement columns on
+  `films_friction_raw`
+  (`static_friction_force_magnitude_1_n`, `backup_peak_n`,
+  `dynamic_friction_force_n`, `static_coefficient_of_friction`,
+  `backup_static_cof`, `dynamic_coefficientof_friction`,
+  `sample_number_prompt_for_value_before_test`,
+  `sample_repeat_number_prompt_for_value_before_test`,
+  `pctrh_prompt_for_value_before_test`) - additive only, original STRING
+  columns untouched, so Looker Studio keeps working unchanged; pointing its
+  charts at the new typed columns is a manual follow-up whenever convenient.
+  Snapshotted first (`films_friction_raw_presnap2_20260827`). Backfilled via
+  one `UPDATE ... SAFE_CAST ... WHERE TRUE` (3,790 rows): confirmed the
+  resulting `NULL`s are all genuinely blank source values, zero
+  non-blank-but-unparseable cases. `shared/friction_parser.py` now computes
+  the same 9 `_num` columns going forward via `pd.to_numeric`, only when
+  the source column is present in that file (some older files lack
+  `backup_static_cof` per `CLAUDE.md`). Cross-checked a real row: Python's
+  `pd.to_numeric` and BigQuery's `SAFE_CAST` agree exactly on the same
+  source string. Verified against all 274 real friction files: 0 parse
+  errors. `main.py` needed no changes - it loads whatever columns the
+  parser produces - confirmed by a full `import main` against the staged
+  `shared/`. Not yet deployed (27 August 2026)
 
 ---
 
