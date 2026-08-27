@@ -1,18 +1,19 @@
 import os
-import re
-import json
 import hashlib
 import tempfile
 import traceback
 from datetime import datetime, timezone
 
-import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
+
+from shared.friction_parser import extract_friction_dataframe
 
 
 PIPELINE_NAME = "friction"
 MACHINE_ID = "tensiletester-1"
+
+print("PHASE_4_CUTOVER: friction parsing now sourced from shared.friction_parser (27 Aug 2026)")
 
 
 def write_manifest(project_id, source_file, checksum, status, rows_total,
@@ -88,32 +89,6 @@ def gcs_csv_to_bigquery(data, context):
     PROCESSED_PREFIX = os.environ["PROCESSED_PREFIX"].rstrip("/") + "/"
     FAILED_PREFIX = os.environ["FAILED_PREFIX"].rstrip("/") + "/"
 
-    TIMESTAMP_FORMATS = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%d/%m/%Y %H:%M:%S",
-        "%d/%m/%Y %H:%M",
-    ]
-
-    FOOTER_MARKERS = {"mean", "sd", "min", "max"}
-
-    def normalize(name):
-        name = (name or "").strip().lower()
-        name = name.replace("%", "pct")
-        name = re.sub(r"[^a-z0-9]+", "_", name)
-        return re.sub(r"_+", "_", name).strip("_")
-
-    def parse_ts(value):
-        if pd.isna(value) or str(value).strip() == "":
-            return None
-        text = str(value).strip()
-        for fmt in TIMESTAMP_FORMATS:
-            try:
-                return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
-        return None
-
     bucket_name = data["bucket"]
     blob_name = data["name"]
 
@@ -141,82 +116,13 @@ def gcs_csv_to_bigquery(data, context):
             tmp_path = tmp.name
 
         with open(tmp_path, "rb") as f:
-            checksum = hashlib.md5(f.read()).hexdigest()
-
-        try:
-            df = pd.read_csv(tmp_path, header=1, dtype=str, encoding="utf-8", keep_default_na=False)
-        except UnicodeDecodeError:
-            df = pd.read_csv(tmp_path, header=1, dtype=str, encoding="latin1", keep_default_na=False)
+            content = f.read()
+        checksum = hashlib.md5(content).hexdigest()
 
         os.remove(tmp_path)
 
-        cols = [c for c in df.columns if str(c).strip() and not str(c).startswith("Unnamed:")]
-        df = df[cols]
-
-        first_col = df.columns[0]
-        df = df[~df[first_col].astype(str).str.lower().isin(FOOTER_MARKERS)]
-
-        # A fully blank row (every column empty, e.g. Excel's trailing
-        # padding) carries nothing and is dropped silently here. A row
-        # that's blank in some columns but not others is real data with a
-        # problem and is handled below instead, not swallowed here. This
-        # used to check only the first column, which meant a row with a
-        # blank Sample but real measurements in every other column was
-        # dropped the same way as genuine padding, with no trace at all.
-        blanked = df.replace(r"^\s*$", "", regex=True)
-        df = df[~(blanked == "").all(axis=1)]
-
-        if df.empty:
-            raise ValueError("No data rows")
-
-        df.columns = [normalize(c) for c in df.columns]
-
-        if "sample" not in df.columns:
-            raise ValueError("Missing sample column")
-
-        if "timestamp_start" not in df.columns:
-            raise ValueError("Missing timestamp column")
-
-        # Row_number below is a stable 1-based position within the data
-        # block, and the reset lets the raw-value snapshot and the parsed
-        # masks below line up by index.
-        df = df.reset_index(drop=True)
-        raw_values = df.copy()
-
-        # A row needs both a sample number and a parseable timestamp to be
-        # usable. Previously a single blank sample or bad timestamp raised
-        # and killed the entire file. Bad rows are now dropped individually
-        # and routed to the row-errors table with the raw values and reason;
-        # the rest of the file still loads.
-        bad_sample_mask = df["sample"].astype(str).str.strip() == ""
-        parsed_ts = df["timestamp_start"].apply(parse_ts)
-        bad_ts_mask = parsed_ts.isna()
-        bad_mask = bad_sample_mask | bad_ts_mask
-
-        row_errors = []
-        for idx, raw_row in raw_values.loc[bad_mask].iterrows():
-            reasons = []
-            if bad_sample_mask.loc[idx]:
-                reasons.append("blank sample")
-            if bad_ts_mask.loc[idx]:
-                reasons.append(f"unparseable timestamp: {raw_values.loc[idx, 'timestamp_start']!r}")
-            row_errors.append({
-                "row_number": int(idx) + 1,
-                "reason": "; ".join(reasons),
-                "raw_row": json.dumps(raw_row.to_dict()),
-            })
-
-        rows_total = len(df)
-        df = df[~bad_mask].copy()
-        rows_dropped = len(row_errors)
-        if df.empty:
-            raise ValueError("No valid rows remain after dropping blank samples / unparseable timestamps")
-
-        df["timestamp_start"] = parsed_ts[~bad_mask]
-        df["timestamp_start"] = pd.to_datetime(df["timestamp_start"], utc=True)
-
-        df["source_file"] = f"gs://{bucket_name}/{blob_name}"
-        df["processed_at"] = pd.Timestamp.now(tz="UTC")
+        df, rows_dropped, row_errors = extract_friction_dataframe(content, source_file=gcs_uri)
+        rows_total = len(df) + rows_dropped
 
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
         job = bq_client.load_table_from_dataframe(df, table_id)

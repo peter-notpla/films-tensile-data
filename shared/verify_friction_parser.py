@@ -67,13 +67,18 @@ def main():
         csv_bytes = blob.download_as_bytes()
         checksum = hashlib.md5(csv_bytes).hexdigest()
         filename = blob.name.split("/")[-1]
+        gcs_uri = f"gs://{BUCKET_NAME}/{blob.name}"
 
         entry = manifest.get(checksum)
         if entry is None:
             no_manifest_entry.append(filename)
 
         try:
-            df, rows_dropped, _ = extract_friction_dataframe(csv_bytes, source_file=filename)
+            # The deployed pipeline stores the full gs:// URI in the data
+            # table's source_file column (unlike tensile/extrusion, which
+            # use just the object path or filename); matched here so this
+            # replay reflects what production actually does.
+            df, rows_dropped, _ = extract_friction_dataframe(csv_bytes, source_file=gcs_uri)
             rows_inserted = len(df)
         except Exception as exc:
             parse_errors.append((filename, str(exc)))
