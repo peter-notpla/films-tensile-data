@@ -78,6 +78,21 @@ phases mostly cannot.
   files, same limitation as the tensile replay. The deployed
   `pipelines/films-friction-csv-processor/main.py` is untouched (27 August
   2026)
+- Extracted the extrusion parser into `shared/extrusion_parser.py`
+  (`extract_extrusion_dataframe()`, plus `normalize_header()` and
+  `parse_date()`, and the `TABLE_COLUMNS` / `HEADER_MAP` / `IDENTITY_COLUMNS`
+  / `MIN_MAPPED_COLUMNS` / `FLOAT_COLUMNS` constants it depends on), moved
+  out verbatim from `main.py`'s event handler, including the 20-21 August
+  guards (required-column check, identity-column check, whitespace
+  trimming, drop-rows-with-no-identity). Diffed identical against the
+  original apart from the same dead `rows_total` local dropped in the
+  tensile and friction extractions. Replayed against all 6 real processed
+  extrusion files (this pipeline has by far the smallest processed
+  backlog): 0 parse errors. Only 1 manifest checksum recorded and it
+  doesn't match any of the 6, same pre-24-August limitation as tensile and
+  friction. The deployed `pipelines/films-extrusion-csv-processor/main.py`
+  is untouched. This completes Phase 2.1 for all three pipelines (27 August
+  2026)
 
 ---
 
