@@ -353,6 +353,27 @@ phases mostly cannot.
   `films-friction-csv-processor-00014-yim`,
   `films-extrusion-csv-processor-00015-nex`, all three `ACTIVE`, no errors
   in Cloud Logging afterward (27 August 2026)
+- **Checkpoint G, Phase 3.4 (cross-reference IDs against the extrusion
+  table), done.** Two BigQuery views, no pipeline code change, no redeploy:
+  `films_pipeline_ops.films_tensile_id_cross_reference` and
+  `films_pipeline_ops.films_friction_id_cross_reference`, each left-joining
+  its results table against a `pellet_id`+`extrusion_id`-deduplicated
+  lookup over `raw_films_extrusion` (`MIN(date)` per pair, since a given
+  roll can have several extrusion rows), flagging `roll_exists` and
+  `extruded_before_test`. Verified the join doesn't fan out (both views
+  return exactly as many rows as their source table: 3,510 and 3,790).
+  The headline finding: most well-formed IDs don't match anything in
+  `raw_films_extrusion` at all - 2,031/3,510 (58%) for tensile, 3,403/3,790
+  (90%) for friction. Confirmed this is a genuine coverage gap, not a join
+  bug, by hand-checking one specimen's exact `pellet_id` and a substring of
+  its `extrusion_id` against the live extrusion table directly: zero
+  matches either way. Makes sense given the numbers - `raw_films_extrusion`
+  holds only 338 rows total against thousands of downstream specimens, and
+  is the same underlying gap the parked pass-filter extrusion lookup work
+  already surfaced (18 of 36 rolls unresolved there). Views are trivially
+  reversible (`DROP VIEW`) (27 August 2026)
+
+---
 
 ## Phase 0: stop active harm
 
