@@ -372,6 +372,20 @@ phases mostly cannot.
   is the same underlying gap the parked pass-filter extrusion lookup work
   already surfaced (18 of 36 rolls unresolved there). Views are trivially
   reversible (`DROP VIEW`) (27 August 2026)
+- **Checkpoint H, Phase 2.6 (least-privilege service accounts), IAM setup
+  done, per-pipeline cutover starting.** Granted `roles/storage.objectAdmin`
+  to the existing, previously-unused `sa-tensile-ingest` (it already held
+  `bigquery.dataEditor`, `bigquery.jobUser`, `eventarc.eventReceiver`, plus
+  a leftover `pubsub.subscriber` left untouched, not part of this cleanup).
+  Created `sa-friction-ingest` and `sa-extrusion-ingest` fresh, both with
+  the same four-role template as `leistritz-ingest-sa`
+  (`bigquery.dataEditor`, `bigquery.jobUser`, `eventarc.eventReceiver`,
+  `storage.objectAdmin`) rather than the compute default SA's
+  project-wide `roles/editor` plus five other broad roles all three film
+  functions currently run as. `scripts/deploy.sh` gained an optional third
+  argument, the service account to deploy with (defaults to leaving the
+  function's current SA untouched, matching `gcloud functions deploy`'s
+  own behaviour when `--service-account` is omitted) (27 August 2026)
 
 ---
 
