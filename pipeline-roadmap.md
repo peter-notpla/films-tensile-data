@@ -127,6 +127,23 @@ phases mostly cannot.
   for the service in the hour after deploy. Extrusion is now the first
   pipeline running its parser from `shared/` in production; friction and
   tensile remain on their inline copies (27 August 2026)
+- Completed the Phase 4 migration for friction, the second of the three.
+  `pipelines/films-friction-csv-processor/main.py` now imports
+  `extract_friction_dataframe` from `shared/friction_parser.py`; the
+  tempfile download, GCS moves, manifest/row-errors writes and error
+  handling are untouched. Caught a real drift before deploying: friction's
+  original code sets the data table's `source_file` column to the full
+  `gs://` URI, unlike extrusion (basename) or tensile (object path), three
+  different pre-existing conventions across the three pipelines. The
+  extracted module was always correct (`source_file` is just whatever the
+  caller passes); the first draft of the cutover call and of
+  `verify_friction_parser.py` passed the bare filename instead, both fixed
+  to pass the full URI before anything was deployed. Replayed against all
+  274 real processed files again after the fix: still 0 parse errors.
+  Deployed live: revision `films-friction-csv-processor-00009-cas` went
+  `ACTIVE`, `PHASE_4_CUTOVER` confirmed in Cloud Logging, no errors in the
+  hour after deploy. Two of three pipelines now run their parser from
+  `shared/`; tensile remains on its inline copy (27 August 2026)
 
 ---
 
