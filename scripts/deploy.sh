@@ -47,11 +47,15 @@ echo "  compiles clean"
 
 echo "Staging shared/ into $PIPELINE_DIR/shared/ ..."
 mkdir -p "$STAGED_SHARED"
-cp "$REPO_ROOT"/shared/*.py "$STAGED_SHARED/"
+# verify_*.py scripts are dev-only (they import google.cloud clients to
+# replay against real buckets/BigQuery); the deployed function never needs
+# them, so they're excluded from both counts below, not just skipped.
+find "$REPO_ROOT/shared" -maxdepth 1 -name "*.py" ! -name "verify_*.py" \
+    -exec cp {} "$STAGED_SHARED/" \;
 STAGED_COUNT=$(find "$STAGED_SHARED" -name "*.py" | wc -l)
-SOURCE_COUNT=$(find "$REPO_ROOT/shared" -maxdepth 1 -name "*.py" | wc -l)
+SOURCE_COUNT=$(find "$REPO_ROOT/shared" -maxdepth 1 -name "*.py" ! -name "verify_*.py" | wc -l)
 if [ "$STAGED_COUNT" -ne "$SOURCE_COUNT" ]; then
-    echo "Staged $STAGED_COUNT files but shared/ has $SOURCE_COUNT; refusing to deploy." >&2
+    echo "Staged $STAGED_COUNT files but shared/ has $SOURCE_COUNT deployable files; refusing to deploy." >&2
     exit 1
 fi
 echo "  staged $STAGED_COUNT file(s)"
