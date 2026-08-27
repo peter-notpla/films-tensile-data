@@ -314,7 +314,11 @@ phases mostly cannot.
   `functions_framework` isn't installed in this dev environment (same
   known, unrelated gap noted during its Phase 4 cutover), so only its
   `shared.extrusion_parser` import was checked directly. No `main.py`
-  changes needed for any of the three. Not yet deployed (27 August 2026)
+  changes needed for any of the three. Deployed live:
+  `films-tensile-csv-processor-00023-tum`,
+  `films-friction-csv-processor-00013-cah`,
+  `films-extrusion-csv-processor-00014-cav`, all three `ACTIVE`, no errors
+  in Cloud Logging afterward (27 August 2026)
 
 ---
 
