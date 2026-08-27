@@ -506,6 +506,27 @@ phases mostly cannot.
   `_all_revisions` table and is immediately visible, correctly marked
   `current`, through the original-named view - exactly what Looker will
   see. Test rows and GCS files cleaned up afterward (27 August 2026)
+- **Phase 0.3 closed: `backfill/backfill.py`'s date-parsing bug fixed.**
+  Rather than patch the format string inline (a fourth copy of tensile's
+  parsing logic, on top of the three `shared/tensile_parser.py` already
+  consolidated), pointed the script at the shared parser directly - same
+  fix, and one less place for this exact bug to have reappeared in. The
+  inline `extract_relevant_dataframe()`/`_is_footer_row()` and their
+  now-unused imports (`io`, `datetime`/`timezone`) are gone;
+  `BACKFILL_COLUMNS` is a deliberately narrower list than
+  `shared.tensile_parser.TABLE_COLUMNS`, leaving out the six Phase 2.5
+  revision columns since this script doesn't call
+  `shared.revision_handling` - it's a one-off recovery tool predating that
+  model, not part of the live event-triggered pipeline, and wiring in full
+  revision handling here would be a separate task, not what 0.3 asked for.
+  Also fixed `BQ_TABLE`, which still pointed at `films_tensile_results` -
+  now a read-only view after this session's earlier table-rename work, so
+  the script would have failed outright if run as-is; retargeted to
+  `films_tensile_results_all_revisions`. Verified locally: compiles clean,
+  imports resolve, and replayed against 3 real processed files with
+  correct row counts and the exact `BACKFILL_COLUMNS` selection. Not a
+  deployed service, so no live Cloud Function test applies here (27 August
+  2026)
 
 ---
 

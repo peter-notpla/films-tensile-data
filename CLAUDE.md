@@ -217,20 +217,19 @@ peter@notpla.com.
 
 ## Current state
 
-Phase 1 (manifest table 1.1, row-errors table 1.2, hourly first-sighting
-alert 1.3 with its UX/escalation/subject-line follow-ons, and the Friday
-morning digest 1.4), Phase 2 (v2 architecture: shared parsing library, key
-model, schema drift-check tooling, typed friction columns, metadata
-revision handling, least-privilege service accounts), Phase 3 (validation:
-whitespace, ID format checks, Excel detection, extrusion cross-reference,
-template naming convention), and Phase 4 (migration: all three pipelines
-now import their parser from `shared/`) are all built and deployed as of
-27 August 2026. See `pipeline-roadmap.md` for the full phase-by-phase log
-and what's next, and `pipeline-history.md` for build history predating that.
-**Phase 0.3 is the one Phase 0 item still open**: `backfill/backfill.py`
-still has unformatted `pd.to_datetime(..., errors="coerce")` date parsing,
-confirmed present by direct code inspection 27 August 2026 - the rest of
-Phase 0 is done.
+Phase 0 (including 0.3, `backfill/backfill.py`'s date parsing, fixed by
+pointing the script at `shared/tensile_parser.py` instead of maintaining
+its own inline copy), Phase 1 (manifest table 1.1, row-errors table 1.2,
+hourly first-sighting alert 1.3 with its UX/escalation/subject-line
+follow-ons, and the Friday morning digest 1.4), Phase 2 (v2 architecture:
+shared parsing library, key model, schema drift-check tooling, typed
+friction columns, metadata revision handling, least-privilege service
+accounts), Phase 3 (validation: whitespace, ID format checks, Excel
+detection, extrusion cross-reference, template naming convention), and
+Phase 4 (migration: all three pipelines now import their parser from
+`shared/`) are all built and deployed as of 27 August 2026. See
+`pipeline-roadmap.md` for the full phase-by-phase log and what's next, and
+`pipeline-history.md` for build history predating that.
 
 Email delivery confirmed by Peter (27 August 2026): the repeat-failure
 escalation email, the alert subject-line fix, and the Friday digest (1.4)
