@@ -93,6 +93,24 @@ phases mostly cannot.
   friction. The deployed `pipelines/films-extrusion-csv-processor/main.py`
   is untouched. This completes Phase 2.1 for all three pipelines (27 August
   2026)
+- Answered the Phase 4 blocker: confirmed via gcloud docs and community
+  precedent that `gcloud functions deploy --source=<dir>` packages only
+  that directory, full stop; there is no flag or mechanism to reach a
+  sibling directory like `shared/`, so it has to be physically staged
+  inside the pipeline directory before every deploy. Built
+  `scripts/deploy.sh`, which stages `shared/*.py` into
+  `pipelines/<name>/shared/`, asserts the staged file count matches the
+  source before deploying (never trust a copy loop silently), runs
+  `gcloud functions deploy --source=<pipeline-dir>`, and always cleans the
+  staged copy up on exit via a trap. `pipelines/*/shared/` added to
+  `.gitignore` so the staged copy is never a second source of truth.
+  Proven against a real deploy: ran it against extrusion with `main.py`
+  still untouched (so behaviour is provably unchanged), new revision
+  `films-extrusion-csv-processor-00012-yeh` went `ACTIVE`, staged copy
+  confirmed cleaned up afterward, nothing stray left for git to pick up.
+  The remaining Phase 4 step per pipeline is switching `main.py` from its
+  inline parser copy to `from shared.<name>_parser import ...`, not yet
+  done for any of the three (27 August 2026)
 
 ---
 

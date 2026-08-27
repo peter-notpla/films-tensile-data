@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# shared/ staged into a pipeline dir by scripts/deploy.sh for gcloud
+# functions deploy --source=., which only packages the directory it's
+# pointed at. The staged copy is not a second source of truth; canonical
+# shared/ lives at the repo root.
+pipelines/*/shared/
+
 # C extensions
 *.so
 
