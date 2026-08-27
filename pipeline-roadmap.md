@@ -386,6 +386,28 @@ phases mostly cannot.
   argument, the service account to deploy with (defaults to leaving the
   function's current SA untouched, matching `gcloud functions deploy`'s
   own behaviour when `--service-account` is omitted) (27 August 2026)
+- **Checkpoint H completed: all three pipelines cut over to least-privilege
+  service accounts.** One pipeline at a time, each redeployed with
+  `--service-account` pointing at its dedicated SA, then proven with a
+  synthetic test file (obviously fake IDs, sample numbers in the
+  9999999xx range, filename prefixed `SA_CUTOVER_TEST_`) pushed through the
+  real watch folder end to end: moved to processed, row landed in the
+  results table, manifest recorded success. All three passed on the first
+  deploy, no rollback needed. Test rows deleted from the results tables and
+  their GCS test files removed from processed afterward; the three
+  matching manifest rows are stuck in BigQuery's streaming-insert buffer
+  (can't `DELETE` for roughly 90 minutes after a streaming insert) and will
+  be cleaned up once that clears - harmless meanwhile, clearly named and
+  self-explanatory. Confirmed all three failed-processing folders are still
+  empty afterward, nothing leaked. No code changed for this checkpoint at
+  all - purely IAM plus a deploy-time flag - confirmed by `git status`
+  showing nothing to commit. `films-tensile-csv-processor`,
+  `films-friction-csv-processor`, and `films-extrusion-csv-processor` now
+  run as `sa-tensile-ingest`, `sa-friction-ingest`, and
+  `sa-extrusion-ingest` respectively, each holding exactly
+  `bigquery.dataEditor`, `bigquery.jobUser`, `eventarc.eventReceiver`,
+  `storage.objectAdmin` - none of the compute default SA's project-wide
+  `roles/editor` or its five other broad roles (27 August 2026)
 
 ---
 
