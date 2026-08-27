@@ -115,18 +115,22 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
         errors="coerce"
     )
 
-    out["pellet_id"] = df.get("Pellet ID (Prompt For Value - Before Test)", "").astype(str)
-    out["extrusion_id"] = df.get("Extrusion ID (Prompt For Value - Before Test)", "").astype(str)
-    out["test_direction"] = df.get("Test Direction (Prompt For Value - Before Test)", "").astype(str)
-    out["sample_number"] = df.get("Sample Number  (Prompt For Value - Before Test)", "").astype(str)
+    # Leading/trailing whitespace carries no information and is invisible in
+    # every UI, but silently breaks exact-match lookups (e.g. the 1264/1279
+    # roll code confusion traced back to values like " AO 260701 LR 1379").
+    # Extrusion already trims on ingestion; tensile did not until now.
+    out["pellet_id"] = df.get("Pellet ID (Prompt For Value - Before Test)", "").astype(str).str.strip()
+    out["extrusion_id"] = df.get("Extrusion ID (Prompt For Value - Before Test)", "").astype(str).str.strip()
+    out["test_direction"] = df.get("Test Direction (Prompt For Value - Before Test)", "").astype(str).str.strip()
+    out["sample_number"] = df.get("Sample Number  (Prompt For Value - Before Test)", "").astype(str).str.strip()
     out["sample_thickness_mm"] = pd.to_numeric(
         df.get("Sample Thickness (mm) (Prompt For Value - Before Test)", ""), errors="coerce"
     )
     out["relative_humidity_pct"] = pd.to_numeric(
         df.get("Relative Humidity (%) (Prompt For Value - Before Test)", ""), errors="coerce"
     )
-    out["notes"] = df.get("Notes (Prompt For Value - After Test)", "").astype(str)
-    out["user_initials"] = df.get("User Initials (Prompt For Value - After Test)", "").astype(str)
+    out["notes"] = df.get("Notes (Prompt For Value - After Test)", "").astype(str).str.strip()
+    out["user_initials"] = df.get("User Initials (Prompt For Value - After Test)", "").astype(str).str.strip()
 
     # Ingestion metadata
     out["source_file"] = source_file

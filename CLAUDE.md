@@ -70,6 +70,16 @@ anywhere.
 This is why an early reconciliation reported 1,020 missing specimens when the
 true figure was 52. Never key on sample number alone.
 
+### Template naming convention (lab workflow, not code)
+
+When copying a VectorPro test to make a major edit, give the new template a
+distinct name rather than reusing the old one. Row 1 of the exported CSV is
+the template name, so a distinct name turns it into meaningful provenance
+(which version of the test produced this file). This cannot repair history,
+since old files already share names across template revisions, but it costs
+nothing going forward. No code enforces this; it is a note for whoever runs
+the tests.
+
 ### Excel destroys precision, and this is accepted
 
 The manual check step involves opening files in Excel and saving. Excel:

@@ -120,6 +120,14 @@ def extract_friction_dataframe(csv_bytes: bytes, source_file: str):
     if df.empty:
         raise ValueError("No valid rows remain after dropping blank samples / unparseable timestamps")
 
+    # Leading/trailing whitespace carries no information and is invisible in
+    # every UI, but silently breaks exact-match lookups. Every surviving
+    # column is still a string at this point (read with dtype=str above), so
+    # a blanket strip is safe; timestamp_start is overwritten immediately
+    # below regardless.
+    for col in df.columns:
+        df[col] = df[col].astype(str).str.strip()
+
     df["timestamp_start"] = parsed_ts[~bad_mask]
     df["timestamp_start"] = pd.to_datetime(df["timestamp_start"], utc=True)
 

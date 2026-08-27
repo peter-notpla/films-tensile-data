@@ -170,6 +170,25 @@ phases mostly cannot.
   service accounts, metadata revision handling), Phase 3 (validation), and
   Phase 5/6 (friction curve long format, analysis layer) - none of which
   are blocked on anything from this session (27 August 2026)
+- Started closing out Phase 2 and Phase 3 as one sequenced body of work
+  (checkpoints A-I; see the plan this was built from for the full design).
+  **Checkpoint A, Phase 3.2 (whitespace trimming), done for tensile and
+  friction.** Correcting the roadmap's own standing-item note in the
+  process: it said extrusion was missing whitespace trimming, but the code
+  says the opposite - extrusion already got it 20 August, tensile and
+  friction did not (friction worst of all: nothing but the timestamp was
+  trimmed). `shared/tensile_parser.py` now strips `pellet_id`,
+  `extrusion_id`, `test_direction`, `sample_number`, `notes`,
+  `user_initials`. `shared/friction_parser.py` now strips every surviving
+  column's values (not just column names, which `normalize()` already
+  handled), since its whole design is "keep whatever survives" rather than
+  a fixed list. Verified against all 526 real tensile and 274 real friction
+  files: 0 parse errors, and an explicit spot-check (parsing 5 real files
+  from each and asserting no value differs from its own `.str.strip()`)
+  confirms the trim is actually running, not just present in the diff. Also
+  folded in Phase 3.5 (template naming convention): added a documentation-
+  only note to `CLAUDE.md` since there is no code to write for a lab
+  workflow convention. Not yet deployed (27 August 2026)
 
 ---
 
