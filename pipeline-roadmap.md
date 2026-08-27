@@ -51,7 +51,17 @@ phases mostly cannot.
   ingested) plus the true most-recent-test date pulled from each pipeline's
   own results table, to catch a machine gone silent even when nothing ever
   reaches the failed folder; verified end to end via a real scheduler
-  invocation, email delivery not yet confirmed by Peter (26 August 2026)
+  invocation, email delivery confirmed by Peter (27 August 2026)
+- Extracted the tensile parser into `shared/tensile_parser.py`
+  (`extract_relevant_dataframe()` and its `_is_footer_row()` helper), moved
+  out verbatim from `main.py` except for `should_process()`, which stayed
+  behind as routing logic, not parsing. Diffed identical against the
+  original. Replayed against all 526 real processed tensile files: 0 parse
+  errors, 0 exceptions. The deployed
+  `pipelines/films-tensile-csv-processor/main.py` is untouched; wiring it to
+  import from `shared/` is the remaining Phase 4 migration step, still
+  needing an answer for how `gcloud functions deploy --source=.` picks up a
+  sibling directory outside the pipeline's own folder (27 August 2026)
 
 ---
 
@@ -250,7 +260,11 @@ which wins.
 
 ## Standing items
 
-- **Bucket versioning is Suspended.** Any delete is permanent. Worth enabling.
+- ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
+  Checked 27 August 2026: `notpla-machine-data` is a hierarchical-namespace
+  bucket, so versioning cannot be enabled on it at all (unsupported by GCS).
+  It already has a 7-day soft-delete policy active since creation, so
+  deletes are recoverable, not permanent. No action needed.
 - **Key rotation.** `mecmesin-uploader` holds a user-managed key from January
   2026, never rotated, on a lab PC. The appspot account holds one from April
   2025 plus `roles/editor`.

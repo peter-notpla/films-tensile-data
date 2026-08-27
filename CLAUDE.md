@@ -197,19 +197,9 @@ See `pipeline-roadmap.md` for phase-by-phase status and what's next, and
 `pipeline-history.md` for the detailed build log: bug fixes, revision IDs,
 and verification steps.
 
-Open loose ends, not yet confirmed (all require Peter to check his inbox,
-not something checkable from this session):
-- One live repeat-failure escalation email should have reached
-  peter@notpla.com during 1.3 verification testing.
-- The alert subject-line fix (condition `displayName`, not policy
-  `displayName`, drives the subject) hasn't been re-verified against a real
-  inbound email, only against the API config.
-- The Friday digest (1.4) was verified end to end via a real scheduler
-  invocation (correct BigQuery results, correct log line, correct metric
-  label extraction) but email delivery itself hasn't been confirmed. One
-  live digest email should have gone to peter@notpla.com from that
-  verification run, arriving off-schedule (triggered manually, not from the
-  actual Friday 09:00 job).
+Email delivery confirmed by Peter (27 August 2026): the repeat-failure
+escalation email, the alert subject-line fix, and the Friday digest (1.4)
+all reached peter@notpla.com. No open loose ends remain from Phase 1.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
@@ -235,4 +225,8 @@ Genuine backlogs, deliberately untouched:
 - 197 friction raw files queued
 - 1,244 tensile raw sample files, no processor watches that prefix
 
-**Bucket versioning is Suspended. Any delete is permanent.**
+**`notpla-machine-data` is a hierarchical-namespace bucket, so object
+versioning cannot be enabled (GCS does not support it on HNS buckets).**
+A soft-delete policy has been active since bucket creation instead: 7-day
+retention, so deletes and overwrites are recoverable for 7 days via
+`gcloud storage objects restore`, not permanent. Confirmed 27 August 2026.
