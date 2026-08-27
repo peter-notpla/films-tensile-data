@@ -459,8 +459,25 @@ phases mostly cannot.
   history above predicts - tensile files showed 100% overlap with their
   own already-current rows, friction files showed 0% (early-session
   exports already superseded by later ones in the real data). Wired into
-  both `main.py`s between parsing and loading. Not yet deployed or live
-  end-to-end tested (27 August 2026)
+  both `main.py`s between parsing and loading.
+
+  Deployed live: `films-tensile-csv-processor-00026-kej` (still running as
+  `sa-tensile-ingest`) and `films-friction-csv-processor-00016-xup` (still
+  running as `sa-friction-ingest`), both `ACTIVE`, no errors in Cloud
+  Logging afterward. **Proved the actual revision mechanism live, twice**:
+  uploaded a synthetic specimen through the real watch folder
+  (`youngs_modulus_mpa=1.11` / `static_coefficient_of_friction=0.111`),
+  confirmed it landed `row_state=current`, `database_revision=1`; uploaded
+  a second file sharing the exact same `specimen_key` with a different
+  value (`2.22` / `0.222`); confirmed the first row flipped to `archived`
+  with `archived_by` correctly pointing at the second file, and the second
+  row landed `current` at `database_revision=2` with `revised_by`
+  correctly pointing at itself - for both tensile and friction. Test rows
+  deleted and test GCS files removed afterward; failed-processing folders
+  confirmed still empty throughout. This is the last checkpoint - **Phase 2
+  and Phase 3 are both closed out** (2.5 for tensile/friction only, by
+  design; extrusion's `key` column serves a different purpose and Callum's
+  own revision pattern is tensile-only) (27 August 2026)
 
 ---
 
