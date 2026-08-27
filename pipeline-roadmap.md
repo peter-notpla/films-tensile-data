@@ -478,6 +478,34 @@ phases mostly cannot.
   and Phase 3 are both closed out** (2.5 for tensile/friction only, by
   design; extrusion's `key` column serves a different purpose and Callum's
   own revision pattern is tensile-only) (27 August 2026)
+- **Follow-up: made the deduped view the default, so Looker Studio needs
+  zero reconfiguration.** Peter didn't want to repoint Looker at the
+  `_current` views built in Checkpoint I, so those were superseded by a
+  table swap instead: `films_tensile_results` and `films_friction_raw`
+  (the exact names Looker's data sources already point at) were renamed to
+  `films_tensile_results_all_revisions` and
+  `films_friction_raw_all_revisions`, and a view was created under each
+  original name doing the same `WHERE row_state = "current"` filtering the
+  dropped `_current` views did. Both pipelines' `BQ_TABLE` env var updated
+  to the new `_all_revisions` names and redeployed, so they keep writing to
+  the real table while Looker (and the Checkpoint G cross-reference views,
+  which resolve views by name at query time and needed no changes at all)
+  transparently sees only current rows. Both tables snapshotted first
+  (`*_prerename_20260827_153559`).
+
+  One real mistake made and caught immediately: the first redeploy attempt
+  for both pipelines ran `gcloud functions deploy` directly instead of
+  through `scripts/deploy.sh`, without staging `shared/` into the source
+  first - tensile's deploy failed its container health check
+  (`ModuleNotFoundError: No module named 'shared'`) since `main.py` couldn't
+  import its parser. Cloud Run correctly kept the prior healthy revision
+  serving 100% of traffic rather than routing to the broken one, so nothing
+  was actually down - confirmed via `gcloud run services describe`. Fixed
+  by manually staging `shared/` before retrying both. Verified end to end
+  with a live test on both pipelines: a synthetic file lands in the
+  `_all_revisions` table and is immediately visible, correctly marked
+  `current`, through the original-named view - exactly what Looker will
+  see. Test rows and GCS files cleaned up afterward (27 August 2026)
 
 ---
 

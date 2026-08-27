@@ -172,14 +172,31 @@ commit and push in the same session as any deploy.
 
 ## Deploy and verify
 
+**Use `scripts/deploy.sh`, never a raw `gcloud functions deploy`.** All three
+pipelines import from `shared/`, and `gcloud functions deploy --source=<dir>`
+only packages the directory it's pointed at - nothing outside it, including
+`shared/`, is ever included. `scripts/deploy.sh` stages `shared/*.py` into
+the pipeline directory first, then cleans it up after. A raw `gcloud`
+deploy will build successfully but fail its container health check at
+startup (`ModuleNotFoundError: No module named 'shared'`) - this happened
+once already, 27 August 2026; Cloud Run correctly kept the prior healthy
+revision serving 100% of traffic rather than routing to the broken one, so
+it wasn't an outage, just a wasted deploy.
+
 ```bash
-cd ~/films-tensile-data/pipelines/<pipeline>
-python3 -m py_compile main.py && echo "compiles clean"
-gcloud functions deploy <function-name> --region=europe-west2 --gen2 --source=. --quiet
+cd ~/films-tensile-data
+scripts/deploy.sh <pipeline-dir> [function-name] [service-account]
 ```
 
+`function-name` defaults to `pipeline-dir` (matches all three today).
+`service-account` defaults to leaving the function's current one untouched;
+pass it explicitly to change it (e.g. after rotating a least-privilege SA).
+
 Always verify a deploy took effect by checking the logs for a distinctive
-string from the new code, not by assuming.
+string from the new code, not by assuming, and confirm
+`gcloud run services describe <name> --region=europe-west2` shows the new
+revision actually serving traffic (`status.traffic`), not just that the
+deploy command exited 0.
 
 ---
 
@@ -200,12 +217,20 @@ peter@notpla.com.
 
 ## Current state
 
-Phase 0 and all of Phase 1 (manifest table 1.1, row-errors table 1.2, hourly
-first-sighting alert 1.3 with its UX/escalation/subject-line follow-ons, and
-the Friday morning digest 1.4) are built and deployed as of 26 August 2026.
-See `pipeline-roadmap.md` for phase-by-phase status and what's next, and
-`pipeline-history.md` for the detailed build log: bug fixes, revision IDs,
-and verification steps.
+Phase 1 (manifest table 1.1, row-errors table 1.2, hourly first-sighting
+alert 1.3 with its UX/escalation/subject-line follow-ons, and the Friday
+morning digest 1.4), Phase 2 (v2 architecture: shared parsing library, key
+model, schema drift-check tooling, typed friction columns, metadata
+revision handling, least-privilege service accounts), Phase 3 (validation:
+whitespace, ID format checks, Excel detection, extrusion cross-reference,
+template naming convention), and Phase 4 (migration: all three pipelines
+now import their parser from `shared/`) are all built and deployed as of
+27 August 2026. See `pipeline-roadmap.md` for the full phase-by-phase log
+and what's next, and `pipeline-history.md` for build history predating that.
+**Phase 0.3 is the one Phase 0 item still open**: `backfill/backfill.py`
+still has unformatted `pd.to_datetime(..., errors="coerce")` date parsing,
+confirmed present by direct code inspection 27 August 2026 - the rest of
+Phase 0 is done.
 
 Email delivery confirmed by Peter (27 August 2026): the repeat-failure
 escalation email, the alert subject-line fix, and the Friday digest (1.4)
@@ -213,6 +238,21 @@ all reached peter@notpla.com. No open loose ends remain from Phase 1.
 
 All failed-processing folders are empty. Anything appearing in them is a live
 problem.
+
+### Table naming: `films_tensile_results` / `films_friction_raw` are views
+
+As of 27 August 2026, `films_tensile_london.films_tensile_results` and
+`machine_data.films_friction_raw` are **views**, not the underlying tables -
+`SELECT * FROM ... WHERE row_state = "current"`, i.e. deduplicated per the
+Phase 2.5 revision model. The actual tables both pipelines write to (and
+where full history, including archived duplicate rows, lives) are
+`films_tensile_results_all_revisions` and `films_friction_raw_all_revisions`
+- reflected in each Cloud Function's `BQ_TABLE` env var. This was done
+specifically so Looker Studio, which already points at the original names,
+sees deduplicated data with zero reconfiguration. If you're querying either
+table directly (not through Looker), query the `_all_revisions` name if you
+need archived rows or want to reason about revision history; query the
+plain name if you just want "the current data," same as Looker sees.
 
 ---
 
