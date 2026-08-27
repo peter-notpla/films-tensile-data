@@ -62,6 +62,22 @@ phases mostly cannot.
   import from `shared/` is the remaining Phase 4 migration step, still
   needing an answer for how `gcloud functions deploy --source=.` picks up a
   sibling directory outside the pipeline's own folder (27 August 2026)
+- Extracted the friction parser into `shared/friction_parser.py`
+  (`extract_friction_dataframe()`, plus its `normalize()` and `parse_ts()`
+  helpers), moved out verbatim from `main.py`'s inline event handler.
+  Diffed identical against the original apart from file-read plumbing
+  (bytes in memory vs. a downloaded tempfile) and one now-dead local
+  variable (`rows_total`, unused in the pure function since the caller
+  derives it as `len(df) + rows_dropped`, matching the tensile parser's
+  pattern). Unlike tensile, friction keeps every surviving column rather
+  than a fixed named set, since `films_friction_raw` is still all-STRING
+  (Phase 2.4). Replayed against all 274 real processed friction files: 0
+  parse errors, 0 exceptions. The manifest-based row-count cross-check
+  doesn't apply here either: only 2 checksums are recorded for friction
+  (table exists since 24 August) and none matched these 274 pre-dating
+  files, same limitation as the tensile replay. The deployed
+  `pipelines/films-friction-csv-processor/main.py` is untouched (27 August
+  2026)
 
 ---
 
