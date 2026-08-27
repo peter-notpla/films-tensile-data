@@ -111,6 +111,22 @@ phases mostly cannot.
   The remaining Phase 4 step per pipeline is switching `main.py` from its
   inline parser copy to `from shared.<name>_parser import ...`, not yet
   done for any of the three (27 August 2026)
+- Completed the Phase 4 migration for extrusion, the first of the three.
+  `pipelines/films-extrusion-csv-processor/main.py` now imports
+  `extract_extrusion_dataframe` from `shared/extrusion_parser.py` instead
+  of holding its own copy; every other line (event handling, GCS moves,
+  manifest/row-errors writes, the restored 20 August failure path) is
+  untouched, confirmed by diff. `scripts/deploy.sh` updated to exclude
+  `verify_*.py` from what gets staged, since those are dev-only. Deployed
+  live: new revision `films-extrusion-csv-processor-00013-liz` went
+  `ACTIVE`, and a one-time `PHASE_4_CUTOVER` startup log line (added
+  because the ported logic is behaviourally identical and prints nothing
+  else new to verify against) confirmed in Cloud Logging that the
+  `shared.extrusion_parser` import actually resolved at cold start in the
+  real deployed environment, not just locally. No errors in Cloud Logging
+  for the service in the hour after deploy. Extrusion is now the first
+  pipeline running its parser from `shared/` in production; friction and
+  tensile remain on their inline copies (27 August 2026)
 
 ---
 
