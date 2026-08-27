@@ -144,6 +144,32 @@ phases mostly cannot.
   `ACTIVE`, `PHASE_4_CUTOVER` confirmed in Cloud Logging, no errors in the
   hour after deploy. Two of three pipelines now run their parser from
   `shared/`; tensile remains on its inline copy (27 August 2026)
+- Completed the Phase 4 migration for tensile, the last of the three.
+  `pipelines/films-tensile-csv-processor/main.py` now imports
+  `extract_relevant_dataframe` from `shared/tensile_parser.py` instead of
+  defining it inline; `should_process()` stayed put as routing logic, same
+  reasoning as the original Phase 2.1 extraction. The call site was already
+  passing `source_file=name` (the full GCS object path, tensile's own
+  pre-existing convention, distinct from extrusion's basename and
+  friction's full `gs://` URI) and didn't need to change, so there was no
+  drift risk here the way there was for friction. Added the
+  `PHASE_4_CUTOVER` marker via `logger.info()` rather than `print()`, to
+  match this pipeline's existing structured-logging style rather than
+  extrusion/friction's plain prints. Replayed against all 526 real
+  processed tensile files again before deploying: still 0 parse errors.
+  Deployed live: revision `films-tensile-csv-processor-00019-pil` went
+  `ACTIVE`, `PHASE_4_CUTOVER` confirmed in Cloud Logging, no errors in the
+  hour after deploy.
+
+  **Phase 4 is now complete for all three pipelines.** Every deployed
+  `main.py` imports its parser from `shared/` rather than holding its own
+  copy; `scripts/deploy.sh` stages `shared/` into the pipeline directory
+  before every future deploy, since `gcloud functions deploy` never
+  includes anything outside `--source`. Remaining roadmap work is Phase 2
+  (key model, schema-from-one-definition, typed columns, least-privilege
+  service accounts, metadata revision handling), Phase 3 (validation), and
+  Phase 5/6 (friction curve long format, analysis layer) - none of which
+  are blocked on anything from this session (27 August 2026)
 
 ---
 
