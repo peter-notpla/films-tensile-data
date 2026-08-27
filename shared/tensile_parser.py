@@ -15,6 +15,14 @@ import pandas as pd
 
 FOOTER_LABELS = {"mean", "sd", "min", "max"}
 
+# Identity constants for the specimen key model (Phase 2.2). Match main.py's
+# own MACHINE_ID/PIPELINE_NAME exactly; kept here too (a small, deliberate
+# duplication of two fixed strings, not the column-list kind of drift risk
+# Phase 2.3 is about) so the parser can build specimen_key without needing
+# config passed in.
+MACHINE_ID = "tensiletester-1"
+PIPELINE_NAME = "tensile"
+
 # The single definition of films_tensile_results' column set (Phase 2.3).
 # main.py's load_to_bigquery() selects and orders by this instead of holding
 # its own copy. Deliberately excludes row_num: that column exists on the
@@ -39,6 +47,9 @@ TABLE_COLUMNS = [
     "user_initials",
     "source_file",
     "processed_at",
+    "template_name",
+    "timestamp_minute",
+    "specimen_key",
 ]
 
 
@@ -66,6 +77,13 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     lines = text.splitlines()
     if len(lines) < 3:
         raise ValueError("CSV too short (needs title + header + data)")
+
+    # Row 1 is the VectorPro template name. Previously discarded outright;
+    # captured now as provenance (Phase 2.2 key model) since copying a
+    # template to make a major edit is how sample numbering resets, and a
+    # distinct template name is the only thing that records which version
+    # of the test produced this file.
+    template_name = lines[0].strip()
 
     # Drop first line (title)
     trimmed = "\n".join(lines[1:])
@@ -187,5 +205,18 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     rows_dropped = len(row_errors)
     if len(out) == 0:
         raise ValueError("No valid specimen rows (sample column empty after cleaning)")
+
+    # Specimen key model (Phase 2.2). timestamp_minute is a genuine minute
+    # truncation, not a formatting nicety: Excel strips seconds during the
+    # manual check step, so any key tolerant of that workflow must be built
+    # at minute resolution. The %Y-%m-%dT%H:%M format is deliberate and must
+    # stay in sync with the SQL backfill used for historical rows
+    # (FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M', ...)) - a mismatched format would
+    # give the same real specimen two different key strings depending on
+    # which path produced its row.
+    out["template_name"] = template_name
+    out["timestamp_minute"] = out["timestamp_start"].dt.floor("min")
+    minute_str = out["timestamp_minute"].dt.strftime("%Y-%m-%dT%H:%M")
+    out["specimen_key"] = MACHINE_ID + "|" + PIPELINE_NAME + "|" + minute_str + "|" + out["sample"].astype(str)
 
     return out, rows_dropped, row_errors

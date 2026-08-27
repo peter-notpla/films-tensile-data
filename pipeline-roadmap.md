@@ -213,6 +213,32 @@ phases mostly cannot.
   unchanged) and confirmed the shared import still resolves staged.
   Deployed live: `films-tensile-csv-processor-00021-voz` `ACTIVE`, no
   errors in Cloud Logging afterward (27 August 2026)
+- **Checkpoint C, Phase 2.2 (key model), done for tensile and friction.**
+  Added `template_name`, `timestamp_minute`, `specimen_key` to both
+  `films_tensile_results` and `films_friction_raw` (`ALTER TABLE`,
+  nullable, additive; both tables snapshotted first as
+  `*_presnap_20260827`). Backfilled `timestamp_minute`/`specimen_key` for
+  history via one `UPDATE ... WHERE TRUE` per table (3,510 tensile rows,
+  3,790 friction rows); `template_name` left `NULL` for history since row
+  1's text was never stored for already-processed files, populated going
+  forward only. The one real risk in this checkpoint: the SQL backfill and
+  the Python parsers must produce byte-identical `specimen_key` strings for
+  the same real specimen, or the same roll's tests would carry two
+  different keys depending on which path wrote the row. Both sides use an
+  explicit `%Y-%m-%dT%H:%M` timestamp format rather than a default
+  string cast specifically to guarantee this - verified by downloading a
+  real processed file for both pipelines, re-parsing it with the updated
+  parser, and confirming the Python-computed `specimen_key` matches the
+  already-backfilled live value character for character (it did, both
+  pipelines). `shared/tensile_parser.py` and `shared/friction_parser.py`
+  now capture row 1 (the VectorPro template name, previously discarded
+  outright) and compute the two new derived columns; tensile's
+  `TABLE_COLUMNS` picked up the three new names automatically as a
+  consequence of the Checkpoint B refactor, no `main.py` changes needed for
+  either pipeline. Verified against all 526 real tensile and 274 real
+  friction files: 0 parse errors. Confirmed both `main.py` modules import
+  cleanly end-to-end (not just their shared submodule) when staged the way
+  `scripts/deploy.sh` stages them. Not yet deployed (27 August 2026)
 
 ---
 
