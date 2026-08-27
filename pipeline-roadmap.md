@@ -238,7 +238,10 @@ phases mostly cannot.
   either pipeline. Verified against all 526 real tensile and 274 real
   friction files: 0 parse errors. Confirmed both `main.py` modules import
   cleanly end-to-end (not just their shared submodule) when staged the way
-  `scripts/deploy.sh` stages them. Not yet deployed (27 August 2026)
+  `scripts/deploy.sh` stages them. Deployed live:
+  `films-tensile-csv-processor-00022-lad` and
+  `films-friction-csv-processor-00011-xem`, both `ACTIVE`, no errors in
+  Cloud Logging afterward (27 August 2026)
 
 ---
 
