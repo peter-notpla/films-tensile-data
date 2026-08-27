@@ -266,6 +266,55 @@ phases mostly cannot.
   parser produces - confirmed by a full `import main` against the staged
   `shared/`. Deployed live: `films-friction-csv-processor-00012-zit`
   `ACTIVE`, no errors in Cloud Logging afterward (27 August 2026)
+- **Checkpoint E, Phase 3.1 (ID format validation), done for all three
+  pipelines.** Added `validation_status` (`valid` /
+  `invalid_pellet_id` / `invalid_extrusion_id` / `invalid_both`) to
+  `films_tensile_results`, `films_friction_raw`, and
+  `raw_films_extrusion` (`ALTER TABLE`, additive; all three snapshotted
+  first). Built `shared/id_validation.py` as the single definition of both
+  regexes, imported by all three parsers rather than tripling the logic.
+  Backfilled all three tables via one `UPDATE ... CASE WHEN
+  REGEXP_CONTAINS(...` per table. **Two real bugs caught and fixed by
+  verification before this was trusted:**
+  1. The Python validator's first draft used `pellet_id or ""`, and a
+     pandas NaN float (which extrusion's columns can produce, since that
+     parser doesn't force `dtype=str` the way tensile/friction do) is
+     truthy in Python, so it reached `re.match()` as a float and crashed.
+     Caught immediately by the standard replay check (4 of 6 real
+     extrusion files started failing). Fixed with a proper `pd.isna()`
+     guard.
+  2. The SQL backfill's `CASE` used plain `NOT REGEXP_CONTAINS(...)`
+     conditions, and SQL's three-valued logic means `NOT NULL` evaluates
+     to `NULL`, not `TRUE` - so whenever one ID was invalid and the other
+     was `NULL` (138 rows just on extrusion), the `invalid_both` branch
+     silently failed to match and the row fell through to
+     `invalid_pellet_id`/`invalid_extrusion_id` instead, under-reporting.
+     Caught by cross-checking every live row's stored ID values directly
+     against Python's `validation_status()` (not by re-parsing source
+     files, which turned out to be the wrong comparison - see below).
+     Fixed by wrapping both sides in `COALESCE(..., "")` before
+     `REGEXP_CONTAINS`, and all three tables re-backfilled.
+  A third apparent mismatch turned out not to be a bug: re-parsing an
+  original GCS file and comparing against the live row can legitimately
+  disagree when the stored value predates a later parser fix (e.g. a
+  pre-20-August extrusion row still carries a trailing space the live
+  whitespace-trim would now strip). The correct verification is Python's
+  `validation_status()` against the value **actually stored live**, not
+  a fresh re-parse of the source file - confirmed exactly this way across
+  the full population of all three tables (3,510 + 3,790 + 338 = 7,638
+  rows, not a sample): zero mismatches. Sanity-checked the resulting
+  distribution too: tensile is 100% valid (consistent with its earlier
+  26-ID cleanup and shelf-life quarantine), extrusion's high invalid rate
+  (147/338) is almost entirely `NULL extrusion_id` on runs where it was
+  never recorded - a genuine, meaningful gap, not a validation bug.
+  Verified against all real files again after both fixes: 0 parse errors
+  across tensile (526), friction (274), extrusion (6). Confirmed `import
+  main` succeeds for tensile and friction against staged `shared/`;
+  extrusion's local import still can't complete because
+  `functions_framework` isn't installed in this dev environment (same
+  known, unrelated gap noted during its Phase 4 cutover), so only its
+  `shared.extrusion_parser` import was checked directly. No `main.py`
+  changes needed for any of the three. Not yet deployed (27 August 2026)
 
 ---
 

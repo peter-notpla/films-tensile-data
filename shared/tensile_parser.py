@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from shared.id_validation import validation_status
+
 FOOTER_LABELS = {"mean", "sd", "min", "max"}
 
 # Identity constants for the specimen key model (Phase 2.2). Match main.py's
@@ -50,6 +52,7 @@ TABLE_COLUMNS = [
     "template_name",
     "timestamp_minute",
     "specimen_key",
+    "validation_status",
 ]
 
 
@@ -218,5 +221,11 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     out["timestamp_minute"] = out["timestamp_start"].dt.floor("min")
     minute_str = out["timestamp_minute"].dt.strftime("%Y-%m-%dT%H:%M")
     out["specimen_key"] = MACHINE_ID + "|" + PIPELINE_NAME + "|" + minute_str + "|" + out["sample"].astype(str)
+
+    # ID format validation (Phase 3.1). Flag, don't reject - see
+    # shared/id_validation.py.
+    out["validation_status"] = [
+        validation_status(p, e) for p, e in zip(out["pellet_id"], out["extrusion_id"])
+    ]
 
     return out, rows_dropped, row_errors

@@ -7,9 +7,9 @@ every real processed file, and pipeline-roadmap.md item 2.1 for why this
 exists (the parser needed to be runnable without deploying it).
 
 Unlike the tensile parser, friction keeps every column that survives
-cleaning rather than a fixed named set: `films_friction_raw` stores
-everything as STRING today because this parser never calls pd.to_numeric.
-That is Phase 2.4, not touched here.
+cleaning rather than a fixed named set: `films_friction_raw`'s original
+columns are all STRING (Phase 2.4 added typed "_num" siblings alongside
+them; see NUMERIC_COLUMNS below).
 """
 
 import io
@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from shared.id_validation import validation_status
+
 TIMESTAMP_FORMATS = [
     "%Y-%m-%d %H:%M:%S",
     "%Y-%m-%d %H:%M",
@@ -27,6 +29,11 @@ TIMESTAMP_FORMATS = [
 ]
 
 FOOTER_MARKERS = {"mean", "sd", "min", "max"}
+
+# Friction's ID columns, after normalize(), differ from tensile/extrusion's
+# plain pellet_id/extrusion_id (Phase 3.1).
+PELLET_ID_COLUMN = "pellet_id_prompt_for_value_before_test"
+EXTRUSION_ID_COLUMN = "extrusion_code_prompt_for_value_before_test"
 
 # Phase 2.4: films_friction_raw stores every measurement as STRING because
 # this parser never called pd.to_numeric. Additive fix - a typed "_num"
@@ -181,5 +188,16 @@ def extract_friction_dataframe(csv_bytes: bytes, source_file: str):
     df["timestamp_minute"] = df["timestamp_start"].dt.floor("min")
     minute_str = df["timestamp_minute"].dt.strftime("%Y-%m-%dT%H:%M")
     df["specimen_key"] = MACHINE_ID + "|" + PIPELINE_NAME + "|" + minute_str + "|" + df["sample"]
+
+    # ID format validation (Phase 3.1). Flag, don't reject - see
+    # shared/id_validation.py. Friction's ID columns are named differently
+    # from tensile/extrusion's (pellet_id_prompt_for_value_before_test /
+    # extrusion_code_prompt_for_value_before_test, not pellet_id /
+    # extrusion_id), and, being dynamic-schema, may not exist in every file.
+    pellet_vals = df.get(PELLET_ID_COLUMN, pd.Series([""] * len(df), index=df.index))
+    extrusion_vals = df.get(EXTRUSION_ID_COLUMN, pd.Series([""] * len(df), index=df.index))
+    df["validation_status"] = [
+        validation_status(p, e) for p, e in zip(pellet_vals, extrusion_vals)
+    ]
 
     return df, rows_dropped, row_errors

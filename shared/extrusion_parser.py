@@ -13,6 +13,8 @@ from io import BytesIO
 
 import pandas as pd
 
+from shared.id_validation import validation_status
+
 TABLE_COLUMNS = [
     "trial_code", "date", "ingredients", "proportion", "batches", "pellet_id",
     "extrusion_id", "time", "zone_1", "zone_2", "zone_3", "zone_4", "zone_5",
@@ -33,7 +35,7 @@ TABLE_COLUMNS = [
     "sd_end", "percent_variation_end", "width_mm", "length_m",
     "pellets_moisture_content_percent", "relative_humidity_percent",
     "temperature_c", "comments", "key", "source_file", "processed_at",
-    "sd", "variation", "variation_end"
+    "sd", "variation", "variation_end", "validation_status"
 ]
 
 
@@ -283,6 +285,15 @@ def extract_extrusion_dataframe(csv_bytes: bytes, source_file: str):
 
     if df.empty:
         raise ValueError("No rows remain after removing rows with no identity")
+
+    # ID format validation (Phase 3.1). Flag, don't reject - see
+    # shared/id_validation.py. Computed after the "ensure all table columns
+    # exist" pass above overwrites pellet_id/extrusion_id with None where
+    # absent, so a genuinely missing ID is correctly treated the same as an
+    # empty one.
+    df["validation_status"] = [
+        validation_status(p, e) for p, e in zip(df["pellet_id"], df["extrusion_id"])
+    ]
 
     # Reorder exactly to BigQuery schema.
     df = df[TABLE_COLUMNS]
