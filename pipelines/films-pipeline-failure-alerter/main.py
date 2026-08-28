@@ -60,13 +60,21 @@ PIPELINE_READABLE = {
 
 
 def find_new_failures(bq):
+    # checksum is NULL whenever a file fails before it can be downloaded
+    # (e.g. a GCS read timeout) - `a.checksum = m.checksum` is never true
+    # for two NULLs, so those rows looked "never alerted" on every run and
+    # re-alerted (and re-escalated) hourly forever. source_file plus a
+    # null-safe checksum match is the real identity of "have we alerted on
+    # this exact failure before".
     query = f"""
         SELECT m.pipeline, m.source_file, m.checksum, m.error_message, m.processed_at
         FROM `{MANIFEST_TABLE}` m
         WHERE m.status = 'failed'
           AND NOT EXISTS (
             SELECT 1 FROM `{ALERTS_SENT_TABLE}` a
-            WHERE a.pipeline = m.pipeline AND a.checksum = m.checksum
+            WHERE a.pipeline = m.pipeline
+              AND a.source_file = m.source_file
+              AND a.checksum IS NOT DISTINCT FROM m.checksum
           )
     """
     return list(bq.query(query).result())
