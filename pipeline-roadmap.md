@@ -597,6 +597,52 @@ phases mostly cannot.
   limitation as the 28 August Gmail migration's test cleanup) and is left
   for a later cleanup pass. **Phase 5 checkpoint 1's live pipeline is
   confirmed deployed and working**, not merely built (28 August 2026)
+- **Fixed and deployed: failure alerter and weekly digest now cover
+  `tensile_raw`.** Both previously only knew `tensile`/`friction`/
+  `extrusion`; the alerter misrouted `tensile_raw` failures to the default
+  recipient under an ugly internal name, and the digest skipped the
+  pipeline outright (it loops `PIPELINE_READABLE.keys()`). Added
+  `tensile_raw` to `FAILED_PREFIXES`/`PIPELINE_READABLE` in the alerter and
+  `PIPELINE_READABLE`/`RESULTS_TABLES` in the digest (the latter using
+  `processed_at` as an interim staleness proxy, flagged in comments as
+  weaker than the other three's true instrument-test-time column, since
+  curve rows carry no per-row test timestamp of their own yet). Deployed
+  both via `scripts/deploy.sh` and verified live by invoking each directly:
+  the alerter correctly labelled and routed real accumulated `tensile_raw`
+  failures (`reason=no_initials_column` instead of the old
+  `unknown_pipeline:tensile_raw`), and the digest's summary email included
+  `tensile_raw` with real counts (503 processed, 12 failed at time of
+  test, 1,110,279 specimens ingested).
+
+  **Second, more serious bug found via that same live test and fixed in
+  the same pass**: the alerter's "already alerted" dedup compared
+  `checksum` with a plain `=`. Any failure whose checksum couldn't be
+  computed - true of every GCS read-timeout failure, since the timeout
+  happens during download, before checksum is taken - has `checksum` NULL,
+  and `NULL = NULL` is never true in SQL. Every such failure looked "never
+  alerted" on every run and re-alerted (and, via the separate
+  filename-based escalation check, re-escalated) hourly forever, for any
+  pipeline. Caught live: 8 real `tensile_raw` timeout failures got a
+  duplicate alert 41 minutes after the first, and a 4-hour-old leftover
+  test file (`raw-CLAUDETEST-sample-999999001.csv`, debris from the
+  original background session's own - previously undocumented - live
+  verification of the reprocessing-loop fix) kept re-triggering a false
+  repeat-failure escalation to Peter every run. Fixed by matching on
+  `(pipeline, source_file, checksum IS NOT DISTINCT FROM checksum)`
+  instead. Verified by invoking the alerter again immediately after
+  redeploying: found exactly 1 new failure (one that occurred after the
+  first invocation), zero re-alerts of the 8 already-sent ones. Stale test
+  manifest rows deleted.
+
+  **Known follow-up, not yet fixed**: the alerter hit a memory limit
+  (256Mi configured, 244Mi used) and its container was killed mid-request
+  while processing a large batch of failures in one run - happened once,
+  during the manual verification call above, not during normal hourly
+  operation. Likely undersized for a burst this large rather than a leak;
+  raising the memory limit needs a `gcloud functions deploy --memory=...`
+  outside what `scripts/deploy.sh` currently exposes. Not urgent while
+  failure volume is elevated only because of the backfill's ongoing GCS
+  timeout issue (28 August 2026)
 
 ---
 

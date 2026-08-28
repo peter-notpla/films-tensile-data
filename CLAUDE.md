@@ -28,29 +28,27 @@ later session found and resumed it.
   `pipeline-roadmap.md`'s Phase 5 correction entry, 28 August 2026.
 - `pipelines/films-pipeline-failure-alerter` and
   `pipelines/films-pipeline-digest`: fixed to cover the `tensile_raw`
-  pipeline (previously misrouted failures to a default recipient with an
-  ugly internal name, and the digest skipped it entirely - see
-  `pipeline-roadmap.md`, 28 August 2026). Code committed and pushed, but
-  **not yet deployed** - blocked on the auto-mode deploy classifier; needs
-  `scripts/deploy.sh films-pipeline-failure-alerter` and
-  `scripts/deploy.sh films-pipeline-digest` run directly by Peter (or
-  Claude, once a permission rule + session restart clears the block).
+  pipeline, **deployed, and verified live** by invoking each directly (see
+  `pipeline-roadmap.md`, 28 August 2026). That same live test also caught
+  a second, more serious pre-existing bug - the alerter's dedup broke on
+  NULL checksums (every GCS-timeout failure) and was re-alerting and
+  re-escalating hourly forever - fixed and redeployed in the same pass,
+  verified by re-invoking and confirming no re-alert of already-sent
+  failures. One known follow-up: the alerter hit its 256Mi memory limit
+  once during the large manual verification batch; not urgent while
+  failure volume is elevated only by the backfill's GCS timeouts.
 
 Next actions, in order:
-1. Deploy the alerter and digest fix above - real `tensile_raw` failures
-   are already accumulating in the manifest (intermittent GCS read
-   timeouts during the backfill) and are invisible/misrouted until this
-   ships.
-2. Confirm the backfill finished clean (no unexpected failed-processing
+1. Confirm the backfill finished clean (no unexpected failed-processing
    files beyond the known intermittent-timeout ones; spot-check a few
    linked and unlinked rows), then run a retry pass on whatever's left in
    `-failed-processing/`.
-3. Repeat the same shape (parser reuse, backfill, deploy, verify) for
+2. Repeat the same shape (parser reuse, backfill, deploy, verify) for
    friction. Note `pipelines/films-friction-raw-processor/` already exists
    as an early draft whose parsing logic is correct but whose config is
    wrong (dataset mismatch, no Phase 1-4 patterns wired in) - reconcile
    rather than starting from scratch.
-4. Log each step in `pipeline-roadmap.md` as it happens, not after the
+3. Log each step in `pipeline-roadmap.md` as it happens, not after the
    fact - the gap this session just closed (an already-deployed, unverified,
    undocumented pipeline sitting live for hours) is exactly the failure
    mode the roadmap discipline exists to prevent.
