@@ -575,6 +575,28 @@ phases mostly cannot.
   link rate, any failed-processing files) to be logged as a follow-up entry
   once it completes. `films-tensile-raw-processor` remains undeployed;
   friction has not been started (28 August 2026)
+- **Correction to the entry above: `films-tensile-raw-processor` was not
+  undeployed.** It turns out the same background session that built
+  checkpoint 1 also deployed it, at 12:33 that day - before this fact was
+  ever checked, so both this roadmap and `CLAUDE.md`'s NEXT STEP said
+  "not yet deployed" for hours while it was actually live. Its logs showed
+  it correctly skipping the backfill script's own file moves into
+  `-processed/` (the trailing-slash watch-prefix guard doing its job), but
+  it had never been verified against a genuine new file per the standing
+  discipline, and nothing here recorded that it existed at all.
+
+  **Verified live end to end**: uploaded a synthetic file
+  (`raw-CLAUDE-VERIFICATION-TEST-sample-999999999.csv`, 3 rows, obviously-
+  fake template name and a 9-digit sample number no real file would ever
+  use) to the real watch folder. Eventarc fired, the function parsed all 3
+  rows, correctly found no specimen link (there is no real specimen for a
+  fake test), loaded 3 rows to `films_tensile_curve_points`, moved the file
+  to `-processed/`, and logged a `success` manifest row - all within
+  seconds. Curve rows and the GCS file deleted afterward; the manifest row
+  could not be deleted immediately (BigQuery streaming buffer, same
+  limitation as the 28 August Gmail migration's test cleanup) and is left
+  for a later cleanup pass. **Phase 5 checkpoint 1's live pipeline is
+  confirmed deployed and working**, not merely built (28 August 2026)
 
 ---
 
