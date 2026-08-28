@@ -2,14 +2,28 @@ import io
 import json
 import os
 from datetime import datetime, timezone
+from html import escape
 
 import functions_framework
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
 
+from shared import email_style, gmail_sender
+
 PROJECT_ID = os.environ.get("PROJECT_ID", "notpla-machine-data")
 BUCKET = os.environ.get("BUCKET", "notpla-machine-data")
+
+LOGS_URL = f"https://console.cloud.google.com/functions/details/europe-west2/films-pipeline-failure-alerter?project={PROJECT_ID}&tab=logs"
+
+# Where each route's alert actually gets sent. "default" catches files with
+# no identifiable owner, or from a pipeline (extrusion) that doesn't record
+# initials at all - see resolve_route().
+ROUTE_EMAILS = {
+    "katie": "katie@notpla.com",
+    "emily": "emily@notpla.com",
+    "default": "peter@notpla.com",
+}
 
 MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
 ALERTS_SENT_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_alerts_sent"
@@ -134,6 +148,90 @@ def resolve_route(pipeline, source_file, directory):
     return route, f"initials:{initials}"
 
 
+def build_failure_email(route, pipeline, pipeline_readable, filename, failed_at, route_reason, error_message):
+    body = email_style.section_header("What happened?")
+    body += email_style.paragraph("A new file failed automated processing.")
+    body += email_style.key_value_table([
+        ("Pipeline", escape(pipeline_readable)),
+        ("File", f"<code>{escape(filename)}</code>"),
+        ("Time of failure", escape(failed_at)),
+    ])
+
+    body += email_style.divider()
+    body += email_style.section_header("How do I fix it?")
+    if route == "default":
+        body += email_style.paragraph(
+            '1. Find the file above in the "Uploaded" folder on the lab computer.<br>'
+            "2. Check it for anything obviously wrong (missing headers, extra blank "
+            'rows at the top, wrong export settings), fix it, then move it back into '
+            'the "To Be Uploaded" folder, keeping the file name exactly the same. '
+            "It'll be picked up and reprocessed automatically.<br>"
+            "3. Not sure what's wrong, or don't have access to fix it? Leave the "
+            "file where it is until someone with access can check it."
+        )
+        body += email_style.muted_note(
+            "This came to you by default: either the file had no identifiable "
+            "owner, or it's from the Extrusion pipeline, which doesn't record "
+            "initials."
+        )
+    else:
+        body += email_style.paragraph(
+            '1. Find the file above in the "Uploaded" folder on the lab computer.<br>'
+            "2. Check it for anything obviously wrong (missing headers, extra blank "
+            'rows at the top, wrong export settings), fix it, then move it back into '
+            'the "To Be Uploaded" folder, keeping the file name exactly the same. '
+            "It'll be picked up and reprocessed automatically.<br>"
+            "3. Not sure what's wrong, or don't have access to fix it? Forward "
+            "this email to peter@notpla.com and leave the file where it is."
+        )
+        body += email_style.muted_note(
+            "This was routed to you because the file's User Initials matched yours."
+        )
+
+    body += email_style.divider()
+    body += email_style.section_header("Technical details")
+    body += email_style.key_value_table([
+        ("Internal pipeline name", escape(pipeline)),
+        ("Routed because", escape(route_reason)),
+        ("Error", escape(error_message)),
+    ])
+    body += email_style.cta_link("View pipeline logs", LOGS_URL)
+
+    html = email_style.wrap_email("Hello,", body)
+    subject = f"[Alert] {pipeline_readable}: {filename} failed processing"
+    return subject, html
+
+
+def build_escalation_email(pipeline, pipeline_readable, filename, failed_at,
+                            previous_failed_at, error_message, previous_error):
+    body = email_style.section_header("What happened?")
+    body += email_style.paragraph(
+        "This file failed automated processing, appears to have been "
+        "reprocessed under the same name, and has now failed again. The "
+        "usual self-serve fix didn't take; this needs a human to look at "
+        "it directly."
+    )
+    body += email_style.key_value_table([
+        ("Pipeline", escape(pipeline_readable)),
+        ("File", f"<code>{escape(filename)}</code>"),
+        ("Latest failure", escape(failed_at)),
+        ("Previous failure", escape(previous_failed_at)),
+    ])
+
+    body += email_style.divider()
+    body += email_style.section_header("Technical details")
+    body += email_style.key_value_table([
+        ("Internal pipeline name", escape(pipeline)),
+        ("Latest error", escape(error_message)),
+        ("Previous error", escape(previous_error)),
+    ])
+    body += email_style.cta_link("View pipeline logs", LOGS_URL)
+
+    html = email_style.wrap_email("Hello,", body)
+    subject = f"[Alert] Repeat failure needs attention: {filename}"
+    return subject, html
+
+
 @functions_framework.http
 def check_and_alert(request):
     bq = bigquery.Client(project=PROJECT_ID)
@@ -158,19 +256,30 @@ def check_and_alert(request):
 
         route, route_reason = resolve_route(pipeline, source_file, directory)
 
-        # This is the line the pipeline_failure_alert log-based metric keys
-        # off; Cloud Monitoring does the actual email send from here. route/
-        # reason come before error deliberately: error_message can contain
-        # embedded newlines (seen in real BigQuery error text), which split
-        # into separate log entries downstream and would silently truncate
-        # anything printed after the first one, including routing. Same
-        # reasoning keeps pipeline_readable/failed_at (both may contain
-        # spaces) before file/route/reason rather than after.
-        print(
-            f"PIPELINE_FAILURE_ALERT pipeline={pipeline} pipeline_readable={pipeline_readable} "
-            f"failed_at={failed_at} file={filename} "
-            f"route={route} reason={route_reason} error={error_message}"
+        subject, html = build_failure_email(
+            route, pipeline, pipeline_readable, filename, failed_at,
+            route_reason, error_message,
         )
+        recipient = ROUTE_EMAILS.get(route)
+        if recipient is None:
+            print(f"PIPELINE_FAILURE_UNKNOWN_ROUTE pipeline={pipeline} file={filename} route={route}, falling back to default")
+            recipient = ROUTE_EMAILS["default"]
+
+        try:
+            send_result = gmail_sender.send_html_email(
+                PROJECT_ID, recipient, subject, html,
+            )
+            print(
+                f"PIPELINE_FAILURE_ALERT_SENT pipeline={pipeline} file={filename} "
+                f"route={route} reason={route_reason} message_id={send_result.get('id')}"
+            )
+        except Exception as exc:
+            # Not marked as sent below (this exception isn't caught there),
+            # so this file is retried next hour rather than silently never
+            # alerting because the send failed.
+            print(f"PIPELINE_FAILURE_ALERT_SEND_FAILED pipeline={pipeline} file={filename} error={exc}")
+            dedup_write_failed += 1
+            continue
 
         previous = find_previous_failure(bq, pipeline, filename, row["processed_at"])
         if previous is not None and previous["status"] == "failed":
@@ -178,15 +287,24 @@ def check_and_alert(request):
                 previous["processed_at"].strftime("%d %b %Y %H:%M UTC")
                 if previous["processed_at"] else "unknown"
             )
-            # Newlines flattened here (unlike error= below) so this field
-            # can safely sit before error= without risking the same-entry
-            # truncation the comment above describes.
-            previous_error = (previous["error_message"] or "").replace("\n", " ")
-            print(
-                f"PIPELINE_FAILURE_ESCALATION pipeline={pipeline} pipeline_readable={pipeline_readable} "
-                f"file={filename} failed_at={failed_at} previous_failed_at={previous_failed_at} "
-                f"previous_error={previous_error} error={error_message}"
+            previous_error = previous["error_message"] or ""
+            esc_subject, esc_html = build_escalation_email(
+                pipeline, pipeline_readable, filename, failed_at,
+                previous_failed_at, error_message, previous_error,
             )
+            try:
+                esc_result = gmail_sender.send_html_email(
+                    PROJECT_ID, "peter@notpla.com", esc_subject, esc_html,
+                )
+                print(
+                    f"PIPELINE_FAILURE_ESCALATION_SENT pipeline={pipeline} "
+                    f"file={filename} message_id={esc_result.get('id')}"
+                )
+            except Exception as exc:
+                # Best-effort: the primary alert above already went out, so
+                # a failed escalation send doesn't block marking this file
+                # as alerted, same as write_manifest elsewhere in this repo.
+                print(f"PIPELINE_FAILURE_ESCALATION_SEND_FAILED pipeline={pipeline} file={filename} error={exc}")
 
         try:
             errors = bq.insert_rows_json(

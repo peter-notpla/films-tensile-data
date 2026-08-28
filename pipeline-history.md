@@ -353,3 +353,131 @@ The ten rows carrying the erroneous `1279` (`BD 260708 LT 1397`) combo were
 deleted and logged to `id_corrections_log`. Snapshot taken first:
 `films_tensile_results_presnap_20260823`. `films_tensile_results` is now
 3,510 rows.
+
+## Pipeline emails moved off Cloud Monitoring alert policies (28 August 2026)
+
+Peter's first real weekly digest email arrived with every field literally
+the string `null` except `pipeline` (e.g. "Weekly summary: (null)... Files
+processed successfully: (null)"), plus Cloud Monitoring's generic "is above
+threshold of 0 with a value of 1" framing on top.
+
+**Root cause**, found by reading the live metric and alert policy config
+directly (`gcloud logging metrics describe pipeline_weekly_digest`,
+`gcloud alpha monitoring policies describe .../14107540101658629672`), not
+just the code: the digest function logs one line per pipeline per run, with
+every real number (`files_processed=`, `files_failed=`, etc.) carried as a
+label on a simple counter metric whose actual *value* just means "one
+digest line was logged" (hence "value of 1"). The alert policy's condition
+aggregates matching log-lines with `crossSeriesReducer: REDUCE_SUM`,
+grouped only by `metric.label.pipeline`. Cloud Monitoring only reliably
+carries a label's value into the notification template when that label is
+part of the aggregation's `groupByFields` - every other label the digest
+relied on for content is dropped. Confirmed directly against the live
+config: `pipeline: friction` (the grouped field) survived; every other
+field came back null, exactly matching what Peter received. The same
+`groupByFields`-excludes-most-labels shape existed on all 5 other alert
+policies (Katie, Emily, default, escalation, extrusion) too, though none
+had been reported as broken.
+
+**Decision (Peter's, after being given the tradeoffs): rebuild rather than
+patch.** A narrower fix (widen `groupByFields` to cover every templated
+label) would have stayed on Cloud Monitoring's alerting boilerplate
+("above threshold of 0..." on every email, permanently) and would not
+support the individual failed-filenames Peter also wanted added. Instead,
+every pipeline email now sends directly from the pipeline's own code via
+the Gmail API, as peter@notpla.com.
+
+**Gmail API access**: Cloud Functions can't send as a real Workspace user
+via a service account without domain-wide delegation (needs a Workspace
+admin), so this uses per-user OAuth instead. One-time setup, done together
+in this session:
+1. Enabled the Gmail API on the project.
+2. Peter created an OAuth 2.0 client (had to be **Web application** type,
+   not Desktop - Desktop clients only support loopback redirects, and this
+   needed a real HTTPS redirect URI reachable from Cloud Shell's Web
+   Preview proxy, e.g. `https://8080-<cloud-shell-web-host>`).
+3. A one-time local script (`google-auth-oauthlib`, a plain
+   `http.server` loopback listener) ran in Cloud Shell; Peter opened the
+   generated consent URL, approved `gmail.send` scope as himself, and the
+   script exchanged the resulting code for a refresh token.
+4. Refresh token, client ID, and client secret stored in Secret Manager as
+   `pipeline-email-gmail-refresh-token` / `-client-id` / `-client-secret`,
+   granted to `films-pipeline-digest-sa`, `films-pipeline-alerter-sa`, and
+   `sa-extrusion-ingest` via `secretmanager.secretAccessor`.
+5. Verified end to end with a direct test send before touching any
+   pipeline code.
+
+Two new shared modules:
+- `shared/gmail_sender.py`: reads the three secrets, refreshes the OAuth
+  token, sends a MIME HTML email via `users.messages.send`. Raises on
+  failure rather than swallowing it, same philosophy as everything else in
+  this repo that must not fail silently.
+- `shared/email_style.py`: HTML building blocks (section headers, dividers,
+  key-value tables, data tables, CTA links, the outer email wrapper)
+  matching the visual language of Peter's existing Notpla Holiday Handover
+  email design system, at his request, for consistency across everything he
+  forwards to non-technical teammates: `#E8623A` orange uppercase section
+  headers, 600px white card, Arial 14px body text, `#888888` muted notes,
+  the same automated-message footer copy.
+
+**Per-pipeline changes**:
+- `pipelines/films-pipeline-digest/main.py`: now queries individual failed
+  filenames (`source_file`, `error_message`, `processed_at` from the
+  manifest, capped at 25 with an overflow note) in addition to the existing
+  counts and most-recent-test query, builds a two-tier email (plain-
+  language summary and second-look notes, then a technical section with
+  the internal pipeline name, exact window, and a full failed-files table),
+  and sends it directly instead of printing a log line for Cloud Monitoring
+  to pick up. Still one email per pipeline, matching the original 1.4 spec.
+  A most-recent-test date more than 14 days old (`STALE_TEST_THRESHOLD_DAYS`)
+  is now called out explicitly in the email, something the old alert-policy
+  approach couldn't compute dynamically at all.
+- `pipelines/films-pipeline-failure-alerter/main.py`: routing logic
+  (`resolve_route`, initials lookup, dedup via `films_pipeline_alerts_sent`)
+  is unchanged. What changed is the delivery: builds and sends the HTML
+  email directly to whichever address the route resolves to
+  (`katie@notpla.com` / `emily@notpla.com` / `peter@notpla.com`), and only
+  marks the file as alerted (`alerts_sent` insert) if the send succeeded -
+  same "don't mark as done if the real action failed" principle already
+  used for the BigQuery dedup write itself. The repeat-failure escalation
+  email is separately built and sent (best-effort: a failed escalation send
+  doesn't block the primary alert already sent).
+- `pipelines/films-extrusion-csv-processor/main.py`: its own independent
+  immediate self-alert (separate from the hourly alerter, catches failures
+  too early to even reach the manifest) now sends directly too, wrapped in
+  a try/except that can never mask the real processing failure it's
+  reporting on, same as the existing `write_manifest` best-effort pattern
+  in this file.
+
+**Verified**:
+- Digest: triggered for real via direct HTTP invocation of the deployed
+  function (not waiting for Friday), confirmed all three pipelines' emails
+  sent with real Gmail message IDs and correct content, restyled version
+  re-triggered and confirmed by Peter after the design-system pass.
+- Failure alerter + escalation: two synthetic failed manifest rows inserted
+  for the same fake filename (`CLAUDE_TEST_alert_verification.csv`,
+  checksums `claude_test_checksum_1`/`_2`, pipeline `tensile`), function
+  invoked directly, confirmed both the primary alert (routed `default`
+  since the fake file doesn't exist in GCS to re-read initials from) and
+  the repeat-failure escalation sent and matched what Peter expected.
+  Synthetic manifest rows deleted afterward. The corresponding
+  `films_pipeline_alerts_sent` test rows could not be deleted immediately
+  (`UPDATE or DELETE... would affect rows in the streaming buffer`, the
+  same BigQuery limitation hit once before during the 24 August
+  auto-cleanup work) - left for a later cleanup pass once the streaming
+  buffer clears; harmless in the meantime since real files will never share
+  those test checksums.
+- Katie/Emily routing: rather than fabricate a full GCS file plus
+  `user_initials` match to exercise `resolve_route` end to end, sent each
+  of them a `[TEST]` preview (a clearly-labelled banner, no action needed)
+  built from the same `build_failure_email()` the real alerts use, so they
+  could review the new formatting directly. Confirmed received.
+
+**Alert policies disabled, not deleted**: all 6 (`14107540101658629672`
+weekly digest, `9771208885019188814` Katie, `16363650473622212820` Emily,
+`18254685885282760543` default, `2248087195614091607` escalation,
+`16570272964582018556` extrusion). Their log-based metrics
+(`pipeline_weekly_digest`, `pipeline_failure_alert`,
+`pipeline_failure_escalation`, `extrusion_pipeline_failure`) are now
+orphaned - the code no longer emits the exact log-line formats they
+matched - but left in place; harmless, and deleting them wasn't asked for.

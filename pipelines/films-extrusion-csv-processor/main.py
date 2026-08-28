@@ -2,11 +2,15 @@ import os
 import hashlib
 import traceback
 from datetime import datetime, timezone
+from html import escape
 
 import functions_framework
 from google.cloud import bigquery, storage
 
+from shared import email_style, gmail_sender
 from shared.extrusion_parser import extract_extrusion_dataframe
+
+FAILURE_ALERT_RECIPIENT = os.environ.get("FAILURE_ALERT_RECIPIENT", "peter@notpla.com")
 
 # Phase 3.3: Excel detection deliberately does not apply here. Row 1 of an
 # extrusion export is a real section-header row (e.g. "Film Thickness
@@ -111,6 +115,57 @@ def write_row_errors(row_errors, source_file, checksum):
         print(f"Row-errors insert failed (pipeline result unaffected): {row_errors_exc}")
 
 
+LOGS_URL = f"https://console.cloud.google.com/functions/details/europe-west2/films-extrusion-csv-processor?project={PROJECT_ID}&tab=logs"
+
+
+def send_failure_email(blob_name, error_message, move_failed_error=None):
+    """Best-effort, like write_manifest above: a failed send here must never
+    mask the real processing failure this is reporting on, so any exception
+    is caught and logged, not raised."""
+    try:
+        filename = blob_name.split("/")[-1]
+        body = email_style.section_header("What happened")
+        body += email_style.key_value_table([
+            ("File", f"<code>{escape(filename)}</code>"),
+            ("Error", escape(error_message)),
+        ])
+        body += email_style.paragraph(
+            "No data was lost: the file has been moved to the "
+            "failed-processing folder, untouched. No rows were written to "
+            "BigQuery for this file."
+        )
+        body += email_style.paragraph(
+            "If unsure how to proceed, forward this email to "
+            "peter@notpla.com, or leave the file where it is until someone "
+            "with access can check it."
+        )
+        if move_failed_error:
+            body += email_style.divider()
+            body += email_style.section_header("Worth a second look")
+            body += email_style.paragraph(
+                "The file could not even be moved to the failed-processing "
+                f"folder ({escape(move_failed_error)}). It may still be "
+                "sitting in the watch folder, which would block it from "
+                "ever being retried."
+            )
+        body += email_style.divider()
+        body += email_style.section_header("Technical details")
+        body += email_style.paragraph(
+            "See the full traceback via the link below, immediately after "
+            "the line beginning EXTRUSION_PIPELINE_FAILURE."
+        )
+        body += email_style.cta_link("View pipeline logs", LOGS_URL)
+        html = email_style.wrap_email("Hello,", body)
+
+        send_result = gmail_sender.send_html_email(
+            PROJECT_ID, FAILURE_ALERT_RECIPIENT,
+            f"[Alert] Extrusion: {filename} failed processing", html,
+        )
+        print(f"EXTRUSION_FAILURE_ALERT_SENT file={filename} message_id={send_result.get('id')}")
+    except Exception as send_exc:
+        print(f"EXTRUSION_FAILURE_ALERT_SEND_FAILED file={blob_name} error={send_exc}")
+
+
 @functions_framework.cloud_event
 def process_file(cloud_event):
     data = cloud_event.data
@@ -184,6 +239,7 @@ def process_file(cloud_event):
         print(f"EXTRUSION_PIPELINE_FAILURE file={blob_name} error={exc}")
         print(traceback.format_exc())
 
+        move_failed_error = None
         try:
             if storage_client.bucket(bucket_name).blob(blob_name).exists():
                 move_blob(bucket_name, blob_name, FAILED_PREFIX)
@@ -193,6 +249,9 @@ def process_file(cloud_event):
         except Exception as move_exc:
             print(f"EXTRUSION_PIPELINE_FAILURE could not move to failed prefix: {move_exc}")
             print(traceback.format_exc())
+            move_failed_error = str(move_exc)
+
+        send_failure_email(blob_name, str(exc), move_failed_error)
 
         write_manifest(
             source_file=gcs_uri,

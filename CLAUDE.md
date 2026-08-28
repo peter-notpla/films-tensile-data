@@ -236,16 +236,39 @@ deploy command exited 0.
 
 ## Live alerting
 
-Extrusion only, as at 21 August 2026:
+As of 28 August 2026, all pipeline emails (weekly digest, per-file failure
+alerts, repeat-failure escalation, extrusion's own immediate self-alert)
+are sent directly from each pipeline's own code via the Gmail API as
+peter@notpla.com, not via Cloud Monitoring alert policies. This replaced
+the original alert-policy-based design after the weekly digest was found
+to arrive with every field `null`: Cloud Monitoring's alert condition
+aggregation (`crossSeriesReducer`) only preserves label values for its
+`groupByFields`, silently dropping every other label. See
+`pipeline-history.md`, 28 August 2026, for the full root cause and rebuild.
 
-- Log line `EXTRUSION_PIPELINE_FAILURE`
-- Metric `extrusion_pipeline_failure`
-- Channel `projects/notpla-machine-data/notificationChannels/14063382024575468776`
-- Policy `projects/notpla-machine-data/alertPolicies/16570272964582018556`
-- `autoClose: 86400s`, so failures self-close after 24 hours regardless
-
-Wider alerting is Phase 1 work. Extrusion errors always route to
-peter@notpla.com.
+- `shared/gmail_sender.py`: sends HTML email via the Gmail API. Credentials
+  (OAuth refresh token, client ID, client secret) live in Secret Manager as
+  `pipeline-email-gmail-refresh-token` / `-client-id` / `-client-secret`,
+  granted to `films-pipeline-digest-sa`, `films-pipeline-alerter-sa`, and
+  `sa-extrusion-ingest`. The refresh token was obtained once by hand via a
+  one-time OAuth consent flow; if it's ever revoked, that flow needs
+  repeating (get a new OAuth client from Console, run the consent flow,
+  overwrite the three secrets).
+- `shared/email_style.py`: shared HTML building blocks matching Peter's
+  Notpla Holiday Handover email design system (`#E8623A` orange headers,
+  600px white card, Arial throughout).
+- The 6 old Cloud Monitoring alert policies (weekly digest, Katie, Emily,
+  default, escalation, extrusion) are **disabled, not deleted** - reversible
+  if the direct-send approach ever needs rolling back. Their log-based
+  metrics (`pipeline_weekly_digest`, `pipeline_failure_alert`,
+  `pipeline_failure_escalation`, `extrusion_pipeline_failure`) are now
+  orphaned (the code no longer emits the exact log-line formats they
+  matched) but left in place, harmless.
+- Extrusion's own immediate self-alert (in
+  `pipelines/films-extrusion-csv-processor/main.py`, separate from the
+  hourly manifest-based alerter) still always routes to peter@notpla.com.
+  Failure alerts from the hourly alerter route to Katie, Emily, or
+  peter@notpla.com by `user_initials`, same as before.
 
 ---
 

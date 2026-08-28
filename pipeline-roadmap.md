@@ -527,6 +527,27 @@ phases mostly cannot.
   correct row counts and the exact `BACKFILL_COLUMNS` selection. Not a
   deployed service, so no live Cloud Function test applies here (27 August
   2026)
+- **All pipeline emails (digest, failure alerts, escalation) moved off
+  Cloud Monitoring alert policies onto sending directly via the Gmail API.**
+  Root cause of the digest arriving all-`null`: the alert condition's
+  `crossSeriesReducer` aggregation only preserves label values for its
+  `groupByFields`, silently dropping every other label the digest relied on
+  for content - a Cloud Monitoring platform limitation, not something
+  fixable by relabelling. Rebuilt so each pipeline's own code sends the
+  email itself: `shared/gmail_sender.py` (OAuth as peter@notpla.com via a
+  refresh token in Secret Manager, obtained once by hand) and
+  `shared/email_style.py` (matches Peter's existing Notpla Holiday Handover
+  email design system: `#E8623A` orange headers, 600px white card, Arial).
+  Digest now also lists individual failed filenames, capped at 25. The 6
+  old Cloud Monitoring alert policies (weekly digest, Katie, Emily, default,
+  escalation, extrusion) are disabled, not deleted. Verified live: digest
+  triggered for real across all three pipelines with correct content;
+  failure-alerter tested with two synthetic failed manifest rows exercising
+  both the primary alert and the repeat-failure escalation; Katie and Emily
+  each sent a clearly-marked `[TEST]` preview and confirmed the formatting.
+  Synthetic manifest rows cleaned up; the corresponding `alerts_sent` test
+  rows could not be deleted immediately (BigQuery streaming buffer), left
+  for a later cleanup pass (28 August 2026)
 
 ---
 
