@@ -5,37 +5,39 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 27 August 2026, end of session): resume Phase 5 planning
+## NEXT STEP (as at 28 August 2026): deploy the tensile curve pipeline, then start friction
 
-Peter left for the day mid-planning. Phase 5 (the friction curve problem -
-long-format curve data, one row per timepoint) has a **draft plan written
-but not yet approved or started**: `~/.claude/plans/joyful-waddling-taco.md`.
-Read that file first when resuming; it has the full design. Summary in case
-that file is ever cleaned up:
+Phase 5 checkpoint 1 (tensile curve parser, linker, and backfill) is
+**built, committed, and pushed** - see `pipeline-roadmap.md`'s Phase 5
+entry for the full account, including a background session earlier today
+that did this work but went offline before committing or logging it; a
+later session found and resumed it.
 
-- A draft pipeline already exists (`pipelines/films-friction-raw-processor/`,
-  never deployed) whose parsing logic is correct but whose config is wrong
-  (dataset mismatch, no Phase 1-4 patterns wired in).
-- Backlogs confirmed live: 741 friction files failed-processing, 196 queued,
-  1,224 tensile raw files, all sharing one 5-column curve format
-  (`Time (s), Load (N), Displacement (mm), Stress (MPa), Strain (%)`).
-- **The hard problem is linking a raw curve file back to its specimen, not
-  parsing it.** Sample number in the filename cannot be trusted - confirmed
-  empirically that both tensile's and friction's summary tables mix native
-  and historically-resequenced sample numbering unpredictably, with real
-  examples of raw files that don't match any current specimen row at all.
-- Peter's decision: store every curve point regardless of linking success -
-  nullable `linked_specimen_key`, populated only when a confident match is
-  found (GCS upload timestamp within a window of a specimen's
-  `timestamp_start`), NULL otherwise, with the actual time delta recorded
-  so confidence is judgeable later rather than trusted blindly.
-- Roadmap's own suggestion, reflected in the plan: build and verify against
-  the tensile backlog first (lower-stakes, same format, already unused),
-  then repeat for friction reusing the same shared parser/linker.
+- `shared/curve_parser.py` + `shared/curve_linking.py`: the shared
+  5-column curve format and the nullable time-proximity specimen linker,
+  per the plan at `~/.claude/plans/joyful-waddling-taco.md`.
+- `scripts/backfill_curve_points.py`: draining the 1,244-file tensile
+  backlog into `films_tensile_curve_points`. Was mid-run as of this entry -
+  check `pipeline-roadmap.md`'s Phase 5 entry or the table itself for
+  final counts (files processed, link rate, any files that landed in
+  `-failed-processing/`) before doing anything else with this backlog.
+- `pipelines/films-tensile-raw-processor`: the live-pipeline counterpart.
+  **Not yet deployed.**
 
-Next action: review the plan file with Peter, get it approved (`ExitPlanMode`
-was interrupted by end-of-day, not rejected on merits), then start with
-checkpoint 1 - `shared/curve_parser.py` + `shared/curve_linking.py`.
+Next actions, in order:
+1. Confirm the backfill finished clean (no unexpected failed-processing
+   files; spot-check a few linked and unlinked rows).
+2. Deploy `films-tensile-raw-processor` via `scripts/deploy.sh` and verify
+   per the "Deploy and verify" section below, then run a live end-to-end
+   test per the standing verification discipline.
+3. Repeat the same shape (parser reuse, backfill, deploy, verify) for
+   friction. Note `pipelines/films-friction-raw-processor/` already exists
+   as an early draft whose parsing logic is correct but whose config is
+   wrong (dataset mismatch, no Phase 1-4 patterns wired in) - reconcile
+   rather than starting from scratch.
+4. Log each step in `pipeline-roadmap.md` as it happens, not after the
+   fact - the gap this session just closed is exactly the failure mode
+   the roadmap discipline exists to prevent.
 
 ---
 
@@ -329,7 +331,9 @@ build the 8 output tables per that file's spec.
 Genuine backlogs, deliberately untouched:
 - 738 friction raw files failed, no processor deployed
 - 197 friction raw files queued
-- 1,244 tensile raw sample files, no processor watches that prefix
+- Tensile raw sample files: no longer untouched - Phase 5 checkpoint 1 is
+  actively backfilling this backlog, see the NEXT STEP section above and
+  `pipeline-roadmap.md`
 
 **`notpla-machine-data` is a hierarchical-namespace bucket, so object
 versioning cannot be enabled (GCS does not support it on HNS buckets).**

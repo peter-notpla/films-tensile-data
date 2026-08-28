@@ -548,6 +548,33 @@ phases mostly cannot.
   Synthetic manifest rows cleaned up; the corresponding `alerts_sent` test
   rows could not be deleted immediately (BigQuery streaming buffer), left
   for a later cleanup pass (28 August 2026)
+- **Phase 5 checkpoint 1: tensile curve parser, specimen linker, and
+  backfill built and running against the real tensile backlog.**
+  `shared/curve_parser.py` (the shared 5-column
+  `Time (s)/Load (N)/Displacement (mm)/Stress (MPa)/Strain (%)` format) and
+  `shared/curve_linking.py` (nullable `linked_specimen_key`, matched by GCS
+  upload time against a specimen's `timestamp_start` within a window, with
+  the time delta always recorded so link confidence is judgeable later)
+  implement the design from the Phase 5 plan. `films_tensile_curve_points`
+  is the destination table; `pipelines/films-tensile-raw-processor` is the
+  live-pipeline counterpart (not yet deployed) and
+  `scripts/backfill_curve_points.py` drains the existing 1,244-file tensile
+  backlog through the same code path, per the roadmap's own suggestion to
+  prototype on tensile before repeating for friction.
+
+  This work was actually done in a background session earlier today that
+  went offline partway through and was never committed or logged here - a
+  later session found 444/1,244 files already landed (64% linked) with the
+  code sitting untracked and the roadmap silent on any of it. Snapshotted
+  `films_tensile_curve_points` (`_snapshot_20260828_resume`), confirmed the
+  backfill script is safe to resume as-is (it only lists whatever remains
+  in the watch folder; already-processed files were already moved to
+  `-processed/`, so no double-insert risk), and restarted it against the
+  797 remaining files. Code committed and pushed once found. Backfill was
+  still running as this entry was written - final counts (files processed,
+  link rate, any failed-processing files) to be logged as a follow-up entry
+  once it completes. `films-tensile-raw-processor` remains undeployed;
+  friction has not been started (28 August 2026)
 
 ---
 
