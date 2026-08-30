@@ -10,6 +10,7 @@ import io
 import re
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
 
 EXPECTED_COLUMNS = [
@@ -82,3 +83,43 @@ def extract_curve_dataframe(csv_bytes, source_file):
         raise ValueError("No valid numeric rows found")
 
     return out, row_errors
+
+
+def downsample_curve_minmax(df, value_col="load_n", n_buckets=100):
+    """Reduces a curve to at most 2 rows per bucket (its min and its max on
+    value_col), bucketed by row position rather than time_s since time_s
+    isn't guaranteed unique. Chosen over fixed-interval decimation because
+    decimation keeps whatever lands on a fixed grid regardless of where the
+    signal actually peaks - for an oscillating curve that can understate or
+    even hide real amplitude depending on phase luck. Min/max-per-bucket
+    always keeps the true local extremes, so a violently oscillating stretch
+    can't be flattened by unlucky sampling, and a genuinely flat stretch
+    isn't manufactured to look busy either. For a monotonic stretch (e.g.
+    most of a tensile curve) the bucket's min and max are just its first and
+    last point, so this degrades gracefully to something like decimation
+    there. Output stays in original row order (by row_number) so a line plot
+    draws correctly regardless of which of min/max occurred first in time.
+
+    n_buckets=100 -> up to 200 output points per curve, chosen to keep
+    tensile's smooth curves visually smooth while still resolving friction's
+    slower, large-amplitude stick-slip oscillation (observed ~1.5-1.7s
+    period on real files) as a visible zigzag rather than a single min/max
+    span. Faster, smaller-amplitude wiggle (observed ~0.12-0.5s period on
+    other real files) gets compressed into an envelope band rather than a
+    fully resolved wave shape - accepted since curve data here is for visual
+    comparison only, not analysis (the summary tables are the source of
+    truth for that); confirmed with Peter 30 August 2026.
+    """
+    n = len(df)
+    if n <= n_buckets * 2:
+        return df
+
+    bucket = np.arange(n) * n_buckets // n
+    df = df.assign(_bucket=bucket)
+    keep = set()
+    for _, group in df.groupby("_bucket"):
+        keep.add(group[value_col].idxmax())
+        keep.add(group[value_col].idxmin())
+
+    out = df.loc[sorted(keep)].drop(columns="_bucket")
+    return out.sort_values("row_number").reset_index(drop=True)

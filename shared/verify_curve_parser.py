@@ -16,29 +16,41 @@ from google.cloud import bigquery
 from google.cloud import storage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.curve_parser import extract_curve_dataframe
+from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 from shared.curve_linking import find_specimen_link
 
 PROJECT_ID = "notpla-machine-data"
 BUCKET_NAME = "notpla-machine-data"
-RAW_SAMPLES_PREFIX = (
+TENSILE_BASE = (
     "machine-tensiletester-1/tensiletester-films/tensiletester-films-tensile/"
-    "tensiletester-films-tensile-raw-samples/"
 )
+RAW_SAMPLES_PREFIX = f"{TENSILE_BASE}tensiletester-films-tensile-raw-samples/"
+# Files scattered across watch/processed/failed folders from an earlier
+# partial run - scan all three so "every real file" actually means every
+# real file, not just whatever's still sitting in the watch folder today.
+ALL_TENSILE_RAW_PREFIXES = [
+    RAW_SAMPLES_PREFIX,
+    f"{TENSILE_BASE}tensiletester-films-tensile-raw-samples-processed/",
+    f"{TENSILE_BASE}tensiletester-films-tensile-raw-samples-failed-processing/",
+]
 TENSILE_RESULTS_TABLE = f"{PROJECT_ID}.films_tensile_london.films_tensile_results_all_revisions"
 
 
 def verify_parser():
     storage_client = storage.Client(project=PROJECT_ID)
-    blobs = list(storage_client.list_blobs(BUCKET_NAME, prefix=RAW_SAMPLES_PREFIX))
+    blobs = []
+    for prefix in ALL_TENSILE_RAW_PREFIXES:
+        blobs.extend(storage_client.list_blobs(BUCKET_NAME, prefix=prefix))
     blobs = [b for b in blobs if b.name.lower().endswith(".csv")]
 
-    print(f"Found {len(blobs)} real raw files under {RAW_SAMPLES_PREFIX}")
+    print(f"Found {len(blobs)} real raw files across watch/processed/failed folders")
 
     succeeded = 0
     failed = []
     total_rows = 0
     total_dropped = 0
+    total_downsampled_rows = 0
+    minmax_mismatches = []
 
     for blob in blobs:
         filename = blob.name.split("/")[-1]
@@ -48,11 +60,29 @@ def verify_parser():
             succeeded += 1
             total_rows += len(df)
             total_dropped += len(row_errors)
+
+            small = downsample_curve_minmax(df)
+            total_downsampled_rows += len(small)
+            if len(df) > 200 and len(small) > len(df):
+                minmax_mismatches.append((filename, "downsampled output is larger than input"))
+            if not df.empty:
+                if small["load_n"].max() != df["load_n"].max() or small["load_n"].min() != df["load_n"].min():
+                    minmax_mismatches.append((filename, "global load_n min/max not preserved"))
         except Exception as exc:
             failed.append((filename, str(exc)))
 
     print(f"Succeeded: {succeeded}/{len(blobs)}")
     print(f"Total curve-point rows produced: {total_rows} (rows dropped as all-NaN: {total_dropped})")
+    print(
+        f"Total rows after min/max downsampling: {total_downsampled_rows} "
+        f"({100 * total_downsampled_rows / total_rows:.1f}% of full resolution)"
+    )
+    if minmax_mismatches:
+        print(f"Downsampling problems: {len(minmax_mismatches)}")
+        for filename, reason in minmax_mismatches:
+            print(f"  {filename}: {reason}")
+    else:
+        print("Downsampling preserved global load_n min/max on every file.")
     if failed:
         print(f"Failed: {len(failed)}")
         for filename, reason in failed:
@@ -60,7 +90,7 @@ def verify_parser():
     else:
         print("No failures.")
 
-    return len(blobs), succeeded, failed
+    return len(blobs), succeeded, failed, minmax_mismatches
 
 
 def verify_linking():
@@ -84,7 +114,7 @@ def verify_linking():
 
 
 if __name__ == "__main__":
-    total, succeeded, failed = verify_parser()
+    total, succeeded, failed, minmax_mismatches = verify_parser()
     verify_linking()
-    if failed or succeeded != total:
+    if failed or succeeded != total or minmax_mismatches:
         sys.exit(1)

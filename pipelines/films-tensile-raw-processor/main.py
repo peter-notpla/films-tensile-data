@@ -8,7 +8,7 @@ import functions_framework
 from google.cloud import bigquery, storage
 
 from shared import email_style, gmail_sender
-from shared.curve_parser import extract_curve_dataframe
+from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 from shared.curve_linking import find_specimen_link
 
 PROJECT_ID = os.environ.get("PROJECT_ID", "notpla-machine-data")
@@ -176,6 +176,7 @@ def process_file(cloud_event):
         filename = blob_name.split("/")[-1]
         df, row_errors = extract_curve_dataframe(content, source_file=filename)
         rows_total = len(df) + len(row_errors)
+        df = downsample_curve_minmax(df)
 
         specimen_key, delta_seconds = find_specimen_link(bq_client, RESULTS_TABLE, gcs_created_at)
         df["linked_specimen_key"] = specimen_key

@@ -25,7 +25,7 @@ from google.cloud import storage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.curve_linking import find_specimen_link
-from shared.curve_parser import extract_curve_dataframe
+from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 
 PROJECT_ID = "notpla-machine-data"
 BUCKET = "notpla-machine-data"
@@ -138,6 +138,7 @@ def main():
 
             df, row_errors = extract_curve_dataframe(content, source_file=filename)
             rows_total = len(df) + len(row_errors)
+            df = downsample_curve_minmax(df)
 
             specimen_key, delta_seconds = find_specimen_link(bq, RESULTS_TABLE, gcs_created_at)
             df["linked_specimen_key"] = specimen_key

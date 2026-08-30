@@ -643,6 +643,81 @@ phases mostly cannot.
   outside what `scripts/deploy.sh` currently exposes. Not urgent while
   failure volume is elevated only because of the backfill's ongoing GCS
   timeout issue (28 August 2026)
+- **Phase 5: switched curve storage from full resolution to min/max-per-
+  bucket downsampling, after an incident caused by resuming the stalled
+  backfill.** Context: the 28 August backfill run had silently died when its
+  launching terminal session ended (no crash, no log, just stopped - found
+  30 August with 729/1,244 files still unprocessed). Before resuming it,
+  Peter asked whether curve resolution could be reduced, since the curve
+  data's only purpose is visual comparison in Looker (the summary tables are
+  the real source of truth, confirmed by Peter - the curve table was never
+  meant to support analysis in its own right).
+
+  Naive fixed-interval decimation was considered and rejected: measured real
+  oscillation periods on 5 random friction files (0.12s to 1.7s, wildly
+  inconsistent across files), and a fixed decimation interval risks aliasing
+  an oscillating curve into looking artificially flat depending on phase
+  luck between the sampling grid and the wave. Implemented
+  `shared/curve_parser.py:downsample_curve_minmax()` instead: buckets by row
+  position (100 buckets, up to 200 output points per curve), keeps the true
+  min and max of `load_n` per bucket, so real amplitude can't be hidden by
+  unlucky grid alignment. Degrades gracefully to near-decimation on
+  tensile's smooth monotonic curves. Wired into both
+  `scripts/backfill_curve_points.py` and
+  `pipelines/films-tensile-raw-processor/main.py`.
+
+  **Verified read-only against all 1,244 real tensile raw files** (not a
+  sample) before touching any production data: 1,243/1,244 parsed cleanly
+  (the one failure, `raw-FILMS-CYCLICALLOADING(V1)-sample-1.csv`, was
+  already a known bad file, unrelated to this change); downsampling reduced
+  2,887,403 rows to 248,600 (8.6% of full resolution) while preserving the
+  exact global `load_n` min/max on every single file.
+
+  **Incident during the wipe-and-restart, caused by me, not a code bug**:
+  snapshotted `films_tensile_curve_points` as
+  `films_tensile_curve_points_snapshot_20260830_pre_downsample`, truncated
+  the live table, then moved all 538 already-processed/failed files back
+  into the watch folder in one bulk `gsutil -m mv` to let the backfill
+  script pick them up. Didn't account for the live, already-deployed
+  `films-tensile-raw-processor` Cloud Function still watching that same
+  folder - Eventarc fired ~538 near-simultaneous triggers, Cloud Run scaled
+  out to many concurrent instances, and BigQuery load jobs collided hard
+  enough to trip `429 rateLimitExceeded: too many table update operations
+  for this table`. Every failure was caught cleanly by the function's
+  existing error handling and quarantined to `-failed-processing/` (nothing
+  corrupted, nothing lost), but ~48 files re-loaded at full resolution
+  before the burst was stopped, and ~490 more were quarantined by the
+  rate limit alone, not genuine data problems.
+
+  Also discovered mid-incident, separately: the failure-alert email path is
+  currently broken (`403 Forbidden` from the Gmail API on send) - so this
+  spike would **not** have reached Peter through the normal channel. Not
+  yet root-caused; needs its own follow-up.
+
+  **Stopped it with Peter's approval** by revoking
+  `sa-tensile-ingest@notpla-machine-data.iam.gserviceaccount.com`'s
+  `roles/run.invoker` binding on the `films-tensile-raw-processor` Cloud Run
+  service (Peter ran this directly - Claude Code's auto-mode classifier
+  correctly blocked both this and an earlier `--max-instances=0` attempt as
+  production infrastructure changes). Full IAM policy and the Eventarc
+  trigger config (`films-tensile-raw-processor-077330`) were backed up
+  first to the session scratchpad, in case a restore was ever needed. Also
+  learned `--max-instances=0` isn't valid on Cloud Run (minimum is 1) - not
+  a real pause lever.
+
+  **Recovery, in order**: re-truncated the table (removing the 48 files'
+  full-res rows), redeployed `films-tensile-raw-processor` with the
+  downsampling code (confirmed the invoker binding stayed revoked through
+  the redeploy - it did), moved the full 1,244-file backlog back into the
+  watch folder (now safe with the trigger paused), and kicked off
+  `scripts/backfill_curve_points.py` to drain it serially - one file at a
+  time specifically avoids the concurrency that caused the rate limit,
+  since the fixed per-job BigQuery overhead means serial processing is safe
+  but slow (~45s/file measured, ~15 hours for the full backlog). Peter
+  chose to let it run overnight rather than pause again to implement
+  batched loads. Running as this entry was written; final counts, the
+  Gmail 403 follow-up, and re-enabling the live trigger (currently still
+  paused) are next (30 August 2026)
 
 ---
 

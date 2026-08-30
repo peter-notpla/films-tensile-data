@@ -5,53 +5,65 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 28 August 2026): deploy the tensile curve pipeline, then start friction
+## NEXT STEP (as at 30 August 2026): finish the tensile curve backfill, re-enable the live trigger, then start friction
 
-Phase 5 checkpoint 1 (tensile curve parser, linker, and backfill) is
-**built, committed, and pushed** - see `pipeline-roadmap.md`'s Phase 5
-entry for the full account, including a background session earlier today
-that did this work but went offline before committing or logging it; a
-later session found and resumed it.
+Phase 5 checkpoint 1 (tensile curve parser, linker, backfill, live
+pipeline) is built and deployed. Curve storage was switched from full
+resolution to min/max-per-bucket downsampling on 30 August (visual
+comparison in Looker is the only purpose of this table; the summary tables
+are the real source of truth) - see `pipeline-roadmap.md`'s Phase 5 entry
+for the full account, **including an incident that day**: resuming the
+stalled backfill by bulk-moving ~538 files back into the watch folder
+triggered the live Cloud Function via Eventarc, which raced BigQuery hard
+enough to trip a `429 rateLimitExceeded` storm. Nothing was corrupted (all
+failures were cleanly quarantined), but it required pausing the live
+pipeline mid-incident.
 
-- `shared/curve_parser.py` + `shared/curve_linking.py`: the shared
-  5-column curve format and the nullable time-proximity specimen linker,
-  per the plan at `~/.claude/plans/joyful-waddling-taco.md`.
-- `scripts/backfill_curve_points.py`: draining the 1,244-file tensile
-  backlog into `films_tensile_curve_points`. Was mid-run as of this entry -
-  check `pipeline-roadmap.md`'s Phase 5 entry or the table itself for
-  final counts (files processed, link rate, any files that landed in
-  `-failed-processing/`) before doing anything else with this backlog.
-- `pipelines/films-tensile-raw-processor`: the live-pipeline counterpart.
-  **Deployed** (turned out to have been live since 12:33 that same day -
-  this file wrongly said "not yet deployed" for hours; corrected once
-  discovered) **and verified live end to end** with a synthetic file: see
-  `pipeline-roadmap.md`'s Phase 5 correction entry, 28 August 2026.
-- `pipelines/films-pipeline-failure-alerter` and
-  `pipelines/films-pipeline-digest`: fixed to cover the `tensile_raw`
-  pipeline, **deployed, and verified live** by invoking each directly (see
-  `pipeline-roadmap.md`, 28 August 2026). That same live test also caught
-  a second, more serious pre-existing bug - the alerter's dedup broke on
-  NULL checksums (every GCS-timeout failure) and was re-alerting and
-  re-escalating hourly forever - fixed and redeployed in the same pass,
-  verified by re-invoking and confirming no re-alert of already-sent
-  failures. One known follow-up: the alerter hit its 256Mi memory limit
-  once during the large manual verification batch; not urgent while
-  failure volume is elevated only by the backfill's GCS timeouts.
+**Current state**:
+- `shared/curve_parser.py` now has `downsample_curve_minmax()`, wired into
+  both `scripts/backfill_curve_points.py` and
+  `pipelines/films-tensile-raw-processor/main.py`. Verified read-only
+  against all 1,244 real files before deploying: preserves exact global
+  `load_n` min/max on every file, 8.6% of full-resolution row count.
+- `films-tensile-raw-processor` is **deployed with the downsampling code**
+  but its Eventarc trigger is **currently paused** -
+  `sa-tensile-ingest@notpla-machine-data.iam.gserviceaccount.com`'s
+  `roles/run.invoker` binding on the Cloud Run service was deliberately
+  revoked to stop the incident and has not been restored yet. Full IAM
+  policy and trigger config were backed up to the session scratchpad
+  first, so it's fully restorable.
+- All 1,244 tensile raw files are back in the watch folder.
+  `scripts/backfill_curve_points.py` is draining them **serially**
+  (deliberately, to avoid the concurrency that caused the incident) -
+  ~45s/file, so ~15 hours for the full backlog. Started 30 August, running
+  overnight with Peter's OK. Check `pipeline-roadmap.md`'s Phase 5 entry
+  or the table itself for final counts before doing anything else with
+  this backlog.
+- **Known follow-up, not yet root-caused**: the failure-alerter's email
+  send is broken (`403 Forbidden` from the Gmail API), discovered mid-
+  incident. This means a failure spike like this one would not currently
+  reach Peter through the normal channel.
 
 Next actions, in order:
-1. Confirm the backfill finished clean (no unexpected failed-processing
-   files beyond the known intermittent-timeout ones; spot-check a few
-   linked and unlinked rows), then run a retry pass on whatever's left in
-   `-failed-processing/`.
-2. Repeat the same shape (parser reuse, backfill, deploy, verify) for
-   friction. Note `pipelines/films-friction-raw-processor/` already exists
-   as an early draft whose parsing logic is correct but whose config is
-   wrong (dataset mismatch, no Phase 1-4 patterns wired in) - reconcile
-   rather than starting from scratch.
-3. Log each step in `pipeline-roadmap.md` as it happens, not after the
-   fact - the gap this session just closed (an already-deployed, unverified,
-   undocumented pipeline sitting live for hours) is exactly the failure
-   mode the roadmap discipline exists to prevent.
+1. Confirm the backfill finished clean (spot-check linked/unlinked rows,
+   check row counts against file counts), then re-grant
+   `roles/run.invoker` to `sa-tensile-ingest@...` on
+   `films-tensile-raw-processor` to resume live triggering, and verify it
+   end to end with one real new file per the standing discipline.
+2. Investigate and fix the Gmail 403 on the failure alerter - a live
+   incident with broken alerting is exactly the gap Phase 1's alerting
+   work was built to close.
+3. Repeat the same shape (parser reuse, backfill, deploy, verify) for
+   friction, using `downsample_curve_minmax()` from the start this time.
+   Note `pipelines/films-friction-raw-processor/` already exists as an
+   early draft whose parsing logic is correct but whose config is wrong
+   (dataset mismatch, no Phase 1-4 patterns wired in) - reconcile rather
+   than starting from scratch. When resuming any stalled backfill by
+   moving files back into a watch folder, check whether a live trigger is
+   already deployed on that same folder first - that's what caused the
+   30 August incident.
+4. Log each step in `pipeline-roadmap.md` as it happens, not after the
+   fact.
 
 ---
 
