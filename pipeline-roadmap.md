@@ -1177,11 +1177,19 @@ which wins.
   microns (117.7, not 0.1177).
 - **Extrusion table whitespace.** Still present; today's cleanup only covered
   tensile.
-- **Friction CoF precedence.** Use `static_coefficient_of_friction` where
-  present, fall back to `backup_static_cof`, record which was used.
+- ~~**Friction CoF precedence.** Use `static_coefficient_of_friction`
+  where present, fall back to `backup_static_cof`, record which was
+  used.~~ Done 1 September 2026: `machine_data.films_friction_raw`'s view
+  definition (still `SELECT * FROM ..._all_revisions WHERE row_state =
+  "current"`, fully backward compatible) now also computes
+  `effective_static_cof` (`COALESCE` of the numeric primary/backup
+  columns) and `static_cof_source` (`'primary'`/`'backup'`). Verified live:
+  931 rows use primary, 54 fall back to backup, 0 have neither.
 - **Talk to Callum.** His `tensile_v21_*` tables already have the manifest and
   row-errors pattern. Worth aligning before building a second version of it.
-- **Amend the review document.** It states 26% of specimens missing; the true
-  figure was closer to 1.5%. The findings behind it stand.
+- ~~**Amend the review document.** It states 26% of specimens missing; the
+  true figure was closer to 1.5%. The findings behind it stand.~~ Done 1
+  September 2026: added a correction note to `pipeline-review.md` section
+  3 in place, preserving the original text rather than rewriting history.
 - **Tests and CI.** No test directory, no fixtures, no compile check. Every
   regression is currently found by a scientist noticing a gap in a chart.

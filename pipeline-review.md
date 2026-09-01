@@ -302,6 +302,18 @@ scientist noticing a gap in a chart, or not noticing.
 The tensile dashboard is missing approximately **26%** of every specimen ever
 tested on that instrument.
 
+> **Correction (added later, findings below otherwise unchanged):** this
+> 26% figure was wrong. It came from reconciling by sample number, which
+> two undocumented manual Excel backfills had rewritten (tensile
+> resequenced from 1,000,000, friction offset by +1,000,000 - see
+> `project-briefing.md` section 4.2 and `CLAUDE.md`'s "Sample numbers are
+> not stable identifiers"). Once that was known, the true figure was 52
+> genuinely missing specimens, roughly 1.5-1.8%, not 1,020. The
+> shortcomings this section motivates (no manifest, no row-error table, no
+> alerting) all stand regardless - the system still had no way to tell
+> genuinely missing data from a resequencing artifact, which is itself
+> part of the finding.
+
 ---
 
 ## 4. The single sentence version
