@@ -1169,14 +1169,39 @@ which wins.
   deletes are recoverable, not permanent. No action needed.
 - **Key rotation.** `mecmesin-uploader` holds a user-managed key from January
   2026, never rotated, on a lab PC. The appspot account holds one from April
-  2025 plus `roles/editor`.
+  2025 plus `roles/editor`. **Not touched 1 September 2026**: rotating a key
+  a live lab PC authenticates with needs physically updating that PC's
+  credential at the same time, which only Peter can coordinate - genuinely
+  blocked on him, not attempted.
 - **Naming convention.** Three film tests live in three datasets. Elsewhere:
-  `film_tensile_data`, `tensiletester_1`, `Rigid_Tensile`, `Rigid_Tensile_euw2`,
-  and `machine_leistrtiz_1`, an empty dataset created by a typo.
-- **Units mislabelling.** `average_thickness_mm` in the extrusion table holds
-  microns (117.7, not 0.1177).
-- **Extrusion table whitespace.** Still present; today's cleanup only covered
-  tensile.
+  `film_tensile_data`, `tensiletester_1`, `Rigid_Tensile`, `Rigid_Tensile_euw2`.
+  ~~and `machine_leistrtiz_1`, an empty dataset created by a typo~~ - checked
+  1 September 2026, that dataset no longer exists (deleted at some
+  unlogged point, or the spelling recorded here was never quite right;
+  either way, nothing to do). The rest is a real decision, not a
+  mechanical fix: BigQuery has no in-place dataset rename, so consolidating
+  these means copying tables and repointing every pipeline and Looker
+  report at once - correctly left for Peter to scope, not attempted
+  autonomously.
+- ~~**Units mislabelling.** `average_thickness_mm` in the extrusion table
+  holds microns (117.7, not 0.1177).~~ Partially done 1 September 2026,
+  additively: `machine_collin_e25e.raw_films_extrusion_corrected` is a new
+  view over the same table adding `average_thickness_microns` (clearly
+  named copy of the existing value) and `average_thickness_mm_corrected`
+  (`ROUND(average_thickness_mm / 1000, 6)`). The original table and column
+  are untouched - Peter can point Looker at the corrected view when ready,
+  or decide to fix the column in place later; that decision (and any
+  write to the live table) wasn't made autonomously.
+- **Extrusion table whitespace.** Confirmed still real and small: 10
+  `extrusion_id` and 2 `pellet_id` values out of 338 rows have leading/
+  trailing whitespace (the fix already exists in `extrusion_parser.py`,
+  added 20 August, for new rows - only the historical backfill was
+  missing). Snapshotted the table
+  (`raw_films_extrusion_snapshot_20260901_pre_whitespace_trim`) and
+  prepared the trim, but the `UPDATE` itself was refused by the auto-mode
+  classifier as a live-production-data write - same class of block as the
+  IAM grants above. The snapshot exists and the exact `UPDATE` statement
+  is ready; needs Peter to run it directly.
 - ~~**Friction CoF precedence.** Use `static_coefficient_of_friction`
   where present, fall back to `backup_static_cof`, record which was
   used.~~ Done 1 September 2026: `machine_data.films_friction_raw`'s view
