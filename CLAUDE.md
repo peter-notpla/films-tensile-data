@@ -5,7 +5,7 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 1 September 2026): grant the friction live trigger its invoker binding, once Peter confirms
+## NEXT STEP (as at 1 September 2026): push to GitHub, then move on to Phase 5's next item
 
 Phase 5 checkpoint 1 (tensile curve parser, linker, backfill, live
 pipeline) is **done and closed out**. The 30 August incident's backlog
@@ -36,11 +36,10 @@ by the alerter's success-anywhere fix (verified `checked:0, alerted:0`).
   Eventarc trigger is **restored and live**, verified end to end with a
   synthetic file (5/5 rows landed correctly). Live tensile curve ingestion
   is working normally again.
-- `films-friction-raw-processor` is deployed with its Eventarc trigger
-  created but **deliberately not given an invoker binding yet** - the live
-  path is dormant until Peter confirms it should go live, same as
-  tensile's 30 August recovery sequencing. Its backfill is complete and
-  verified (see above); nothing is currently ingesting friction files.
+- `films-friction-raw-processor` is deployed and now **live**: Peter
+  confirmed directly and `sa-friction-ingest` was granted `roles/run.invoker`
+  on the Cloud Run service, verified end to end with a synthetic file (3/3
+  rows landed correctly). Both raw pipelines are fully operational.
 - `films-pipeline-failure-alerter` and the weekly digest both cover
   `tensile_raw` and `friction_raw` now, deployed, verified live
   (`checked:0, alerted:0` against the real backlog - no false positives).
@@ -48,20 +47,17 @@ by the alerter's success-anywhere fix (verified `checked:0, alerted:0`).
   from Peter (rotates per session, none given yet as of this entry).
 
 Next actions, in order:
-1. Get a GitHub token from Peter and push (5 commits ahead of `origin/main`
+1. Get a GitHub token from Peter and push (6 commits ahead of `origin/main`
    as of this entry).
-2. **Ask Peter whether to grant `sa-friction-ingest`'s `roles/run.invoker`
-   binding** on `films-friction-raw-processor` to go live - this is a
-   production infrastructure change and needs Peter directly, the same as
-   the 30 August invoker-revoke did (Claude Code's auto-mode classifier
-   correctly blocks this class of change).
-3. When resuming any stalled backfill by moving files back into a watch
+2. When resuming any stalled backfill by moving files back into a watch
    folder, check whether a live trigger is already deployed on that same
    folder first - that's what caused the 30 August incident.
-4. Log each step in `pipeline-roadmap.md` as it happens, not after the
+3. Log each step in `pipeline-roadmap.md` as it happens, not after the
    fact - and commit before ending a session, even mid-task. This has now
    failed three times (28 August, 30 August, 1 September) on exactly this
    project; treat it as the single highest-value habit to fix.
+4. Pick up the next item in Phase 5 (the friction curve problem) or
+   whatever Peter prioritizes next - both raw curve pipelines are done.
 
 ---
 
@@ -222,7 +218,7 @@ pipelines/films-tensile-csv-processor/     deployed, fixed 14 May 2026
 pipelines/films-friction-csv-processor/    deployed, all-STRING schema
 pipelines/films-extrusion-csv-processor/   deployed, fixed 21 Aug 2026
 pipelines/films-tensile-raw-processor/     deployed, live trigger active
-pipelines/films-friction-raw-processor/    deployed, trigger dormant (no invoker binding)
+pipelines/films-friction-raw-processor/    deployed, live trigger active
 backfill/                                  one-off scripts, legacy
 ```
 

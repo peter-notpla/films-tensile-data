@@ -841,6 +841,27 @@ phases mostly cannot.
   logged before now, and the live Eventarc trigger has no invoker binding
   yet, so new incoming friction files are not being ingested live. See
   `CLAUDE.md`'s NEXT STEP (1 September 2026)
+- **Friction raw-curve ingestion taken live.** Peter confirmed directly
+  (this is the production infrastructure change auto-mode doesn't take on
+  its own judgment, same class as the 30 August invoker revoke). Granted
+  `sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com`
+  `roles/run.invoker` on the `films-friction-raw-processor` Cloud Run
+  service, matching the Eventarc trigger's configured service account.
+
+  **Verified live end to end**, same pattern as tensile's 30 August/1
+  September checks: uploaded a synthetic file
+  (`raw-CLAUDE-VERIFICATION-TEST-sample-999999999.csv`, 3 rows, obviously-
+  fake template name and a 9-digit sample number) to the real watch folder.
+  Eventarc fired within seconds, the function parsed all 3 rows, correctly
+  found no specimen link, loaded 3/3 rows to `films_friction_curve_points`
+  (185,405 to 185,408), moved the file to `-processed/`, and logged a
+  `success` manifest row. Curve rows and the GCS file deleted afterward
+  (back to 185,405); the manifest row could not be deleted immediately
+  (BigQuery streaming buffer, same limitation as every prior test cleanup
+  in this project) and is left for a later cleanup pass.
+
+  **Friction raw-curve ingestion is now live**, matching tensile. Both raw
+  pipelines are fully operational (1 September 2026)
 
 ---
 
