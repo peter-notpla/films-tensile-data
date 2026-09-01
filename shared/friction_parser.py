@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from shared.id_validation import validation_status
+from shared.excel_detection import clean_template_name
 
 TIMESTAMP_FORMATS = [
     "%Y-%m-%d %H:%M:%S",
@@ -95,7 +96,7 @@ def extract_friction_dataframe(csv_bytes: bytes, source_file: str):
     # entirely) is the VectorPro template name - provenance for the
     # specimen key model (Phase 2.2), same reasoning as the tensile parser.
     first_line = csv_bytes.decode("utf-8", errors="replace").splitlines()
-    template_name = first_line[0].strip() if first_line else ""
+    template_name = clean_template_name(first_line[0]) if first_line else ""
 
     try:
         df = pd.read_csv(io.BytesIO(csv_bytes), header=1, dtype=str,

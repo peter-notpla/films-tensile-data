@@ -30,3 +30,15 @@ def is_excel_processed(csv_bytes: bytes, timestamps=None) -> bool:
         all_zero_seconds = bool(present) and all(getattr(t, "second", None) == 0 for t in present)
 
     return row1_padded or all_zero_seconds
+
+
+def clean_template_name(raw_row1: str) -> str:
+    """Row 1 is the VectorPro template name, but Excel's trailing-comma row-1
+    padding (see module docstring) leaks straight into it if only whitespace
+    is stripped - confirmed on real files where the same template produced
+    both "TensileTest-Films(V1)" and "TensileTest-Films(V1),,,,,,,,,,,,,,,"
+    depending on whether Excel had touched the file. Stripping trailing
+    commas collapses both back to one value; real template names observed so
+    far are plain identifiers with no legitimate trailing comma to protect.
+    """
+    return raw_row1.strip().rstrip(",").strip()

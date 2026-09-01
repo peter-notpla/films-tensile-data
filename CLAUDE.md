@@ -25,16 +25,20 @@ class of command):
 - **Extrusion table whitespace trimmed.** 338 rows updated; verified 0/338
   now have leading/trailing whitespace on `pellet_id`/`extrusion_id`.
   Snapshot kept (`raw_films_extrusion_snapshot_20260901_pre_whitespace_trim`).
-- **`template_name` backfilled** on `films_tensile_results_all_revisions`
-  and `films_friction_raw_all_revisions` (both snapshotted first). Friction
-  fully resolved; tensile resolved 3,459/3,510 - 51 rows across 23 files
-  can't be recovered because those source CSVs no longer exist anywhere in
-  GCS (left `NULL`, not guessed). Also surfaced a real parser gap: Excel's
-  trailing-comma row-1 padding leaks into `template_name` for ~2,022
-  tensile rows, fragmenting the same template into two distinct string
-  values - not fixed yet, needs a `shared/tensile_parser.py` change. Full
-  account in `pipeline-roadmap.md`'s 1 September "`template_name` backfill"
-  entry.
+- **`template_name` backfilled and normalized** on
+  `films_tensile_results_all_revisions` and `films_friction_raw_all_revisions`
+  (snapshotted before each write). Friction fully resolved; tensile
+  resolved 3,459/3,510 - 51 rows across 23 files can't be recovered because
+  those source CSVs no longer exist anywhere in GCS (left `NULL`, not
+  guessed). Also fixed the parser gap this surfaced: Excel's trailing-comma
+  row-1 padding was leaking into `template_name`
+  (`shared/excel_detection.clean_template_name()` now handles it, both
+  `shared/tensile_parser.py` and `shared/friction_parser.py` use it).
+  Deployed to both `films-tensile-csv-processor` and
+  `films-friction-csv-processor`, verified live with a real synthetic file
+  through each GCS watch folder, then re-normalized the 2,022 + 24 already-
+  affected historical rows. Full account in `pipeline-roadmap.md`'s 1
+  September `template_name` entries.
 
 **Still open:**
 1. **One commit is unpushed: `b9c03cb` adds `.github/workflows/ci.yml`**,

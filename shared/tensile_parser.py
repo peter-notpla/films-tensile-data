@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from shared.id_validation import validation_status
+from shared.excel_detection import clean_template_name
 
 FOOTER_LABELS = {"mean", "sd", "min", "max"}
 
@@ -92,7 +93,7 @@ def extract_relevant_dataframe(csv_bytes: bytes, source_file: str):
     # template to make a major edit is how sample numbering resets, and a
     # distinct template name is the only thing that records which version
     # of the test produced this file.
-    template_name = lines[0].strip()
+    template_name = clean_template_name(lines[0])
 
     # Drop first line (title)
     trimmed = "\n".join(lines[1:])

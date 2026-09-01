@@ -1236,6 +1236,49 @@ every future live row, not a one-off data backfill.
 Temp staging tables (`films_pipeline_ops.tmp_tensile_template_map`,
 `tmp_friction_template_map`) used for the `MERGE` were dropped after.
 
+### `template_name` comma-padding fix and re-normalization (1 September 2026)
+
+Follow-up to the backfill above, same day, Peter approved fixing the
+parser and re-normalizing. Root cause: `shared/tensile_parser.py` and
+`shared/friction_parser.py` both did `lines[0].strip()` for row 1, which
+strips whitespace but not the trailing-comma padding Excel adds on save
+(`shared/excel_detection.py`'s docstring already documented this exact
+quirk for other fields, just not this one). Added
+`shared.excel_detection.clean_template_name()` (strip, then
+`rstrip(",")`, then strip again) and switched both parsers to call it.
+
+Verified before deploying: unit tests still pass (5/5); replayed both
+fixed parsers directly against every real file retrievable from GCS (306
+tensile, 274 friction - the same files behind the backfill above) with
+zero remaining comma-padded values and zero parse failures.
+
+Deployed both `films-tensile-csv-processor` (revision `-00029-fev`) and
+`films-friction-csv-processor` (revision `-00018-roc`) via
+`scripts/deploy.sh`; confirmed both revisions serving 100% of traffic via
+`gcloud run services describe`. Then ran a genuine live end-to-end test
+per the standing discipline: pushed an obviously-fake synthetic file
+(sample `8675309`, pellet/extrusion IDs of `Z`s and `9`s, notes flagged
+"CLAUDE TEST ROW") with a deliberately comma-padded row 1 through each
+pipeline's real GCS watch folder. Both landed with clean `template_name`
+values (`TensileTest-Films(V1)`, `FrictionTest-Films(V1)`) despite the
+padding - confirmed the fix live, not just in the parser unit. Deleted
+both test rows from BigQuery and both moved-to-processed test files from
+GCS afterward.
+
+Snapshotted both tables again first (state had moved since the earlier
+backfill snapshot):
+`films_tensile_results_all_revisions_snapshot_20260901_pre_template_comma_strip`,
+`films_friction_raw_all_revisions_snapshot_20260901_pre_template_comma_strip`.
+Then `UPDATE ... SET template_name = REGEXP_REPLACE(template_name, r",+$", "")
+WHERE template_name LIKE "%,"` on both tables: 2,022 tensile rows and 24
+friction rows normalized. Verified after: `films_tensile_results_all_revisions`
+now has exactly 4 distinct `template_name` values (`TensileTest-Films(V1)`
+x3,442, `NULL` x51 - the unrecoverable rows from the backfill above,
+`TensileTest-Films[WIP](V1)` x15, `Tensiletest-FILMLONGGAUGE(V1)` x2);
+`films_friction_raw_all_revisions` now has exactly 2
+(`FrictionTest-Films(V1)` x3,229, `FrictionTest-FilmsOld(V1)` x561) - no
+comma-padded stragglers, counts add up to the pre-strip totals.
+
 ---
 
 ## Standing items
