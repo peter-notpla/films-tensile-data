@@ -333,6 +333,40 @@ table directly (not through Looker), query the `_all_revisions` name if you
 need archived rows or want to reason about revision history; query the
 plain name if you just want "the current data," same as Looker sees.
 
+### Curve analysis views, for Looker: pick a pellet/extrusion ID, see curves
+
+Built 1 September 2026 so Peter can add these as Looker Studio data
+sources and filter curve charts by pellet or extrusion ID:
+
+- `films_tensile_london.films_tensile_curve_analysis` - columns:
+  `specimen_key`, `pellet_id`, `extrusion_id`, `test_direction`,
+  `relative_humidity_pct`, `repeat_no`, `test_date`, `timestamp_start`,
+  plus the curve columns (`row_number`, `time_s`, `load_n`,
+  `displacement_mm`, `stress_mpa`, `strain_pct`), `link_time_delta_seconds`,
+  `source_file`. `repeat_no` is tensile's `sample` field - there's no
+  separate hand-entered repeat number for tensile the way friction has
+  one, so this is the closest equivalent, not a verified match.
+- `machine_data.films_friction_curve_analysis` - same shape, plus
+  `test_surface`; no `test_direction` column, because friction's raw data
+  has no direction field at all (checked the schema and real rows before
+  concluding this, not assumed).
+
+**Coverage is currently thin, especially for friction.** Each view keeps
+only one curve file per specimen (fixed a real fan-out bug where up to 61
+unrelated files were all linking to the same specimen - see
+`pipeline-roadmap.md`'s 1 September entry for the full account). After
+that fix: tensile has 108 specimens across 17 pellets / 20 extrusions;
+friction has only 2 specimens / 2 pellets. Root cause is
+`shared/curve_linking.py` matching by GCS upload time, which is a good
+proxy for test time on a live-ingested file but not for most of the
+historical backfill, where upload time reflects whenever the file
+happened to reach GCS, not when the test happened. Not fixed - flagged for
+Peter, since widening the match window would reintroduce the fan-out bug
+just fixed, and a real fix likely needs either accepting that backfill
+coverage stays thin (going-forward files linked via the live trigger
+should do much better, since GCS time is test time for those) or a
+different join key entirely.
+
 ---
 
 ## In progress: pass-filter roll extrusion lookup

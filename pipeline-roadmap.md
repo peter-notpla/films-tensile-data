@@ -895,6 +895,72 @@ phases mostly cannot.
   `gcloud secrets add-iam-policy-binding` commands to run himself; not yet
   confirmed done as of this entry. Until then, a genuine friction raw-curve
   processing failure still won't email anyone (1 September 2026)
+- **Built the Phase 6-style Looker analysis views Peter asked for, and
+  found the curve-to-specimen linking has much thinner real coverage than
+  the row counts suggest.** Peter's ask: from Looker, pick a pellet or
+  extrusion ID and see curves, filterable for tensile by direction,
+  humidity, repeat no. or test date, and for friction by the same plus
+  test surface.
+
+  Created two views joining each curve-point table to its results table on
+  `linked_specimen_key = specimen_key`:
+  - `films_tensile_london.films_tensile_curve_analysis` - adds
+    `pellet_id`, `extrusion_id`, `test_direction`,
+    `relative_humidity_pct`, `repeat_no` (mapped from `sample`, tensile's
+    only per-test sequence number - there is no separately-entered "repeat
+    number" field for tensile the way there is for friction, so this is a
+    judgment call, not a verified equivalence), `test_date`.
+  - `machine_data.films_friction_curve_analysis` - adds `pellet_id`,
+    `extrusion_id`, `test_surface`, `relative_humidity_pct` (from
+    `pctrh_prompt_for_value_before_test_num`), `repeat_no` (from the
+    friction schema's actual, explicitly-entered
+    `sample_repeat_number_prompt_for_value_before_test_num` field),
+    `test_date`.
+  - **No `test_direction` for friction**: checked the real schema and
+    real rows - friction's raw results table has no direction field at
+    all, and tensile's `test_direction` is a per-specimen property (the
+    same `extrusion_id` carries both `MD` and `TD` specimens), so it
+    can't be safely inherited via extrusion_id either. Omitted rather than
+    invented; flagging for Peter rather than guessing.
+
+  **Found and fixed a real bug while verifying**: one tensile specimen had
+  61 different raw curve files all linked to it (confirmed a `GROUP BY
+  specimen_key HAVING COUNT(DISTINCT source_file) > 1` was non-empty and
+  large). Cause: `curve_linking.py` matches by GCS upload time within a
+  30-minute window with no exclusivity constraint, and a burst of files
+  uploaded together (backfill events, or several genuine specimens tested
+  within the same couple of minutes) can all land closest to the same one
+  specimen that happens to have a results row nearby, even when 5+ of them
+  are really unrelated tests. Fixed at the view level (not the underlying
+  table): each view now keeps only the single closest source file per
+  specimen (`QUALIFY`-style `ROW_NUMBER() OVER (PARTITION BY
+  linked_specimen_key ORDER BY link_time_delta_seconds)`), same
+  "deduplicate in the view" pattern the roadmap's own Phase 6.2 already
+  prescribes. Verified: max files per specimen is now exactly 1 in both
+  views.
+
+  **Real, still-open limitation - coverage is thin**: after that fix,
+  `films_tensile_curve_analysis` has 108 specimens across 17 pellets / 20
+  extrusions (of 1,243 backfilled tensile curve files); friction's has
+  only 2 specimens / 2 pellets (of 928 files). The underlying cause is
+  `curve_linking.py`'s reliance on GCS upload time as a proxy for test
+  time - reliable for a file live-ingested minutes after its test, not for
+  a historical file whose GCS creation time reflects whenever it happened
+  to be uploaded relative to the automated uploader's own history, which
+  for much of the backlog has no relationship to the actual test time.
+  Delta-seconds among confirmed matches are excellent (median 45s), so the
+  matching logic itself is not at fault - there just often isn't a
+  candidate specimen within 30 minutes to match against. Not fixed here:
+  widening the window risks exactly the false-attribution bug just fixed
+  above, and a real fix likely means either accepting thin backfill
+  coverage as permanent (going-forward files should link far better once
+  the live trigger is the only source, since GCS time then really is test
+  time) or a different join key entirely. Flagging for Peter rather than
+  guessing at a fix.
+
+  Both views verified end to end: filtering by a real `pellet_id` returns
+  a sane single curve per specimen with plausible `test_direction`/
+  `repeat_no`/`test_date`/`test_surface` values (1 September 2026)
 
 ---
 
