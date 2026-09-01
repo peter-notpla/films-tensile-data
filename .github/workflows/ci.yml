@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile check every shared/ and pipeline module
+        run: |
+          python3 -m py_compile shared/*.py
+          for f in pipelines/*/main.py; do python3 -m py_compile "$f"; done
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+      - name: Run unit tests
+        run: python3 -m pytest tests/ -v

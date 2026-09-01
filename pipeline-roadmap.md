@@ -1216,5 +1216,17 @@ which wins.
   true figure was closer to 1.5%. The findings behind it stand.~~ Done 1
   September 2026: added a correction note to `pipeline-review.md` section
   3 in place, preserving the original text rather than rewriting history.
-- **Tests and CI.** No test directory, no fixtures, no compile check. Every
-  regression is currently found by a scientist noticing a gap in a chart.
+- ~~**Tests and CI.** No test directory, no fixtures, no compile check.
+  Every regression is currently found by a scientist noticing a gap in a
+  chart.~~ Started 1 September 2026, not a full solution: `tests/` has 5
+  pytest unit tests against the pure `shared/*.py` parsers
+  (tensile/friction/extrusion/curve), using small real files captured from
+  production as fixtures (`tests/fixtures/`) rather than hand-written
+  ones, so they exercise the real column names and quirks. All 5 pass
+  locally; `.github/workflows/ci.yml` runs a compile check across
+  `shared/*.py` and every `pipelines/*/main.py`, then the test suite, on
+  every push. No coverage yet for `shared/curve_linking.py`,
+  `shared/bq_retry.py`, `shared/gmail_sender.py`, or `shared/
+  revision_handling.py` (all touch BigQuery/GCS/Gmail directly, so a real
+  unit test needs mocking or fixtures this session didn't build) - a real
+  next step, not claimed as done here.

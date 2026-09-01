@@ -1,0 +1,15 @@
+FrictionTest-Films(V1)
+Sample,Static Friction Force (Magnitude 1) (N),Backup Peak (N),Dynamic Friction Force (N),Static Coefficient of Friction ,Backup Static CoF ,Dynamic CoefficientOf Friction ,Timestamp - Start ,"Pellet ID (Prompt For Value - Before Test)","Extrusion code (Prompt For Value - Before Test)","Sample number (Prompt For Value - Before Test)","Sample repeat number (Prompt For Value - Before Test)","%RH (Prompt For Value - Before Test)","Test Surfaces (Prompt For Value - Before Test)","Notes (Prompt For Value - After Test)"
+521,1.778,1.778,0.803,0.907,0.907,0.410,2026-03-17 12:01:37,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","1","1","50%","Outside Film on Inside Film","NA"
+522,1.703,1.703,0.778,0.869,0.869,0.397,2026-03-17 12:02:41,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","1","2","50%","Outside Film on Inside Film","NA"
+523,1.640,1.640,0.780,0.837,0.837,0.398,2026-03-17 12:05:32,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","1","3","50%","Outside Film on Inside Film","NA"
+524,1.739,1.739,0.710,0.887,0.887,0.362,2026-03-17 12:07:44,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","2","1","50%","Outside Film on Inside Film","NA"
+525,1.588,1.588,0.702,0.810,0.810,0.358,2026-03-17 12:08:43,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","2","2","50%","Outside Film on Inside Film","NA"
+526,,1.679,0.701,,0.857,0.358,2026-03-17 12:09:44,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","2","3","50%","Outside Film on Inside Film","NA"
+527,1.635,1.635,0.613,0.834,0.834,0.313,2026-03-17 12:11:45,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","3","1","50%","Outside Film on Inside Film","NA"
+528,1.420,1.420,0.608,0.724,0.724,0.310,2026-03-17 12:12:47,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","3","2","50%","Outside Film on Inside Film","NA"
+529,1.429,1.429,0.601,0.729,0.729,0.307,2026-03-17 12:13:58,"GN AB AE AM 260310 LI PF 1128","AO 260312 KD 1248","3","3","50%","Outside Film on Inside Film","NA"
+Mean,,1.623,0.700,,0.828,0.357
+SD,,0.126,0.078,,0.064,0.040
+Min,,1.420,0.601,,0.724,0.307
+Max,1.778,1.778,0.803,0.907,0.907,0.410

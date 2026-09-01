@@ -1,0 +1,7 @@
+TensileTest-Films(V1)
+Sample,Young's Modulus (MPa),Offset Yield (MPa),Max Load (N) (N),Max Stress (MPa) (MPa),Break (%),Toughness (MPa),Timestamp - Start ,"Pellet ID (Prompt For Value - Before Test)","Extrusion ID (Prompt For Value - Before Test)","Test Direction (Prompt For Value - Before Test)","Sample Number  (Prompt For Value - Before Test)","Sample Thickness (mm) (Prompt For Value - Before Test)","Relative Humidity (%) (Prompt For Value - Before Test)","Notes (Prompt For Value - After Test)","User Initials (Prompt For Value - After Test)"
+17,539.674,5.439,11.767,11.767,5.621,0.481,2026-02-04 11:20:15,"EV AB AI AM 251117 HZ PF 1052","BD 251217 JK 1144","MD","1","0.1","35","50%-35%","KF"
+Mean,539.674,5.439,11.767,11.767,5.621,0.481
+SD,0.000,0.000,0.000,0.000,0.000,0.000
+Min,539.674,5.439,11.767,11.767,5.621,0.481
+Max,539.674,5.439,11.767,11.767,5.621,0.481
