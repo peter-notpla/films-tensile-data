@@ -5,59 +5,62 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 1 September 2026): push to GitHub, then move on to Phase 5's next item
+## NEXT STEP (as at 1 September 2026): four blockers only Peter can clear
 
-Phase 5 checkpoint 1 (tensile curve parser, linker, backfill, live
-pipeline) is **done and closed out**. The 30 August incident's backlog
-(1,199 failed manifest events) turned out to be almost entirely transient
-retry-storm noise: 1,243 of 1,244 files landed fine, confirmed by tracing
-full per-file manifest history and cross-checking GCS folder state, not by
-trusting any single failure count. Real bugs found and fixed on 1
-September: BigQuery load jobs now retry-with-backoff on both rate-limit
-error shapes (`shared/bq_retry.py`), and the failure-alerter no longer
-alerts on a file that later succeeded (it was re-alerting on every
-transient failure, which is what actually produced ~690 emails - not real
-data loss). Full account in `pipeline-roadmap.md`'s Phase 5 entries.
+Both raw curve pipelines (tensile, friction) are **live and fully
+backfilled** - Phase 5 checkpoint 1 is done. The Looker-facing analysis
+views Peter asked for exist and are verified
+(`films_tensile_curve_analysis`, `films_friction_curve_analysis` - see the
+"Curve analysis views" section below). Several standing items were also
+closed out same-session. Full blow-by-blow in `pipeline-roadmap.md`'s 1
+September entries.
 
-**Friction ingestion has also since been built, deployed, and fully
-backfilled** - reconstructed from BigQuery/GCS evidence rather than any
-commit or log, because it happened in the same session but was never
-written down (the third occurrence of this project's standing
-unlogged-background-work risk; see `pipeline-roadmap.md`'s newest Phase 5
-entry for the full forensic account). Verified clean: 928/928 real friction
-raw files landed exactly once in `films_friction_curve_points`, zero
-duplicates, watch and failed-processing folders both empty. The manifest's
-738 "failed" rows are phantom 404s from the same GCS-listing race already
-root-caused for tensile that day, harmless and already correctly suppressed
-by the alerter's success-anywhere fix (verified `checked:0, alerted:0`).
+**Blockers - each one was refused by Claude Code's auto-mode classifier as
+a production-write/security-boundary action that conversational chat
+approval cannot clear, only Peter running it directly can:**
 
-**Current state**:
-- `films-tensile-raw-processor` is deployed with the retry fix, its
-  Eventarc trigger is **restored and live**, verified end to end with a
-  synthetic file (5/5 rows landed correctly). Live tensile curve ingestion
-  is working normally again.
-- `films-friction-raw-processor` is deployed and now **live**: Peter
-  confirmed directly and `sa-friction-ingest` was granted `roles/run.invoker`
-  on the Cloud Run service, verified end to end with a synthetic file (3/3
-  rows landed correctly). Both raw pipelines are fully operational.
-- `films-pipeline-failure-alerter` and the weekly digest both cover
-  `tensile_raw` and `friction_raw` now, deployed, verified live
-  (`checked:0, alerted:0` against the real backlog - no false positives).
-- Everything above is **committed locally, push pending a GitHub token**
-  from Peter (rotates per session, none given yet as of this entry).
+1. **Friction Gmail alerts still don't work.** `sa-friction-ingest` was
+   never granted access to the three Gmail secrets (unlike
+   `sa-tensile-ingest`/`sa-extrusion-ingest`, which already have it - a
+   gap from friction's build, not a regression). Run:
+   ```
+   gcloud secrets add-iam-policy-binding pipeline-email-gmail-refresh-token --project=notpla-machine-data --member="serviceAccount:sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
+   gcloud secrets add-iam-policy-binding pipeline-email-gmail-client-id --project=notpla-machine-data --member="serviceAccount:sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
+   gcloud secrets add-iam-policy-binding pipeline-email-gmail-client-secret --project=notpla-machine-data --member="serviceAccount:sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
+   ```
+2. **Extrusion table whitespace fix is prepared but not applied.**
+   Snapshotted as `machine_collin_e25e.raw_films_extrusion_snapshot_20260901_pre_whitespace_trim`.
+   Run:
+   ```sql
+   UPDATE `notpla-machine-data.machine_collin_e25e.raw_films_extrusion`
+   SET pellet_id = TRIM(pellet_id), extrusion_id = TRIM(extrusion_id),
+       trial_code = TRIM(trial_code), ingredients = TRIM(ingredients),
+       proportion = TRIM(proportion), batches = TRIM(batches),
+       time = TRIM(time), comments = TRIM(comments), `key` = TRIM(`key`)
+   WHERE TRUE
+   ```
+3. **One commit is unpushed: `b9c03cb` adds `.github/workflows/ci.yml`**,
+   and GitHub rejects it from a token without `workflow` scope. Either get
+   a token with that scope, push it yourself, or add the file by hand via
+   the GitHub web UI (content is already in the local commit / see
+   `pipeline-roadmap.md`'s "Tests and CI" entry).
+4. **Curve-to-specimen link coverage is thin** (108 tensile specimens / 17
+   pellets; only 2 friction specimens / 2 pellets currently link cleanly -
+   see the "Curve analysis views" section below for the root cause). Not
+   a mechanical fix - needs a decision on how to improve it.
 
-Next actions, in order:
-1. Get a GitHub token from Peter and push (6 commits ahead of `origin/main`
-   as of this entry).
-2. When resuming any stalled backfill by moving files back into a watch
-   folder, check whether a live trigger is already deployed on that same
-   folder first - that's what caused the 30 August incident.
-3. Log each step in `pipeline-roadmap.md` as it happens, not after the
-   fact - and commit before ending a session, even mid-task. This has now
-   failed three times (28 August, 30 August, 1 September) on exactly this
-   project; treat it as the single highest-value habit to fix.
-4. Pick up the next item in Phase 5 (the friction curve problem) or
-   whatever Peter prioritizes next - both raw curve pipelines are done.
+**Also flagged, not attempted (needs Peter's judgment, not a blocker to
+clear quickly)**: key rotation (`mecmesin-uploader`'s Jan 2026 key, the
+appspot default account's `roles/editor`), and the dataset-naming
+consolidation (`film_tensile_data`/`tensiletester_1`/`Rigid_Tensile`/
+`Rigid_Tensile_euw2`) - both need Peter to scope and coordinate, not
+something to execute unilaterally. "Talk to Callum" about revision-handling
+value semantics is a human conversation, not automatable.
+
+Standing habit, worth restating since it has now bitten this project three
+times (28 August, 30 August, 1 September): **log each step in
+`pipeline-roadmap.md` as it happens, and commit before ending a session,
+even mid-task.**
 
 ---
 
