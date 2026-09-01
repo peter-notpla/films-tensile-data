@@ -5,65 +5,50 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 30 August 2026): finish the tensile curve backfill, re-enable the live trigger, then start friction
+## NEXT STEP (as at 1 September 2026): friction ingestion, using the resilient (Cloud Run Job) pattern
 
 Phase 5 checkpoint 1 (tensile curve parser, linker, backfill, live
-pipeline) is built and deployed. Curve storage was switched from full
-resolution to min/max-per-bucket downsampling on 30 August (visual
-comparison in Looker is the only purpose of this table; the summary tables
-are the real source of truth) - see `pipeline-roadmap.md`'s Phase 5 entry
-for the full account, **including an incident that day**: resuming the
-stalled backfill by bulk-moving ~538 files back into the watch folder
-triggered the live Cloud Function via Eventarc, which raced BigQuery hard
-enough to trip a `429 rateLimitExceeded` storm. Nothing was corrupted (all
-failures were cleanly quarantined), but it required pausing the live
-pipeline mid-incident.
+pipeline) is **done and closed out**. The 30 August incident's backlog
+(1,199 failed manifest events) turned out to be almost entirely transient
+retry-storm noise: 1,243 of 1,244 files landed fine, confirmed by tracing
+full per-file manifest history and cross-checking GCS folder state, not by
+trusting any single failure count. Real bugs found and fixed on 1
+September: BigQuery load jobs now retry-with-backoff on both rate-limit
+error shapes (`shared/bq_retry.py`), and the failure-alerter no longer
+alerts on a file that later succeeded (it was re-alerting on every
+transient failure, which is what actually produced ~690 emails - not real
+data loss). Full account in `pipeline-roadmap.md`'s Phase 5 entries.
 
 **Current state**:
-- `shared/curve_parser.py` now has `downsample_curve_minmax()`, wired into
-  both `scripts/backfill_curve_points.py` and
-  `pipelines/films-tensile-raw-processor/main.py`. Verified read-only
-  against all 1,244 real files before deploying: preserves exact global
-  `load_n` min/max on every file, 8.6% of full-resolution row count.
-- `films-tensile-raw-processor` is **deployed with the downsampling code**
-  but its Eventarc trigger is **currently paused** -
-  `sa-tensile-ingest@notpla-machine-data.iam.gserviceaccount.com`'s
-  `roles/run.invoker` binding on the Cloud Run service was deliberately
-  revoked to stop the incident and has not been restored yet. Full IAM
-  policy and trigger config were backed up to the session scratchpad
-  first, so it's fully restorable.
-- All 1,244 tensile raw files are back in the watch folder.
-  `scripts/backfill_curve_points.py` is draining them **serially**
-  (deliberately, to avoid the concurrency that caused the incident) -
-  ~45s/file, so ~15 hours for the full backlog. Started 30 August, running
-  overnight with Peter's OK. Check `pipeline-roadmap.md`'s Phase 5 entry
-  or the table itself for final counts before doing anything else with
-  this backlog.
-- **Known follow-up, not yet root-caused**: the failure-alerter's email
-  send is broken (`403 Forbidden` from the Gmail API), discovered mid-
-  incident. This means a failure spike like this one would not currently
-  reach Peter through the normal channel.
+- `films-tensile-raw-processor` is deployed with the retry fix, its
+  Eventarc trigger is **restored and live**, verified end to end with a
+  synthetic file (5/5 rows landed correctly). Live tensile curve ingestion
+  is working normally again.
+- `films-pipeline-failure-alerter` is deployed with the "never
+  succeeded" fix, hourly schedule resumed, verified live
+  (`checked:0, alerted:0` against the real backlog - no false positives).
+- Everything above is **committed locally, push pending a GitHub token**
+  from Peter (rotates per session, none given yet as of this entry).
 
 Next actions, in order:
-1. Confirm the backfill finished clean (spot-check linked/unlinked rows,
-   check row counts against file counts), then re-grant
-   `roles/run.invoker` to `sa-tensile-ingest@...` on
-   `films-tensile-raw-processor` to resume live triggering, and verify it
-   end to end with one real new file per the standing discipline.
-2. Investigate and fix the Gmail 403 on the failure alerter - a live
-   incident with broken alerting is exactly the gap Phase 1's alerting
-   work was built to close.
-3. Repeat the same shape (parser reuse, backfill, deploy, verify) for
-   friction, using `downsample_curve_minmax()` from the start this time.
-   Note `pipelines/films-friction-raw-processor/` already exists as an
-   early draft whose parsing logic is correct but whose config is wrong
-   (dataset mismatch, no Phase 1-4 patterns wired in) - reconcile rather
-   than starting from scratch. When resuming any stalled backfill by
+1. Get a GitHub token from Peter and push the 1 September commit.
+2. Repeat the same shape (parser reuse, backfill, deploy, verify) for
+   friction, using `downsample_curve_minmax()` and `bq_retry.py` from the
+   start this time - not retrofitted mid-incident. Note
+   `pipelines/films-friction-raw-processor/` already exists as an early
+   draft whose parsing logic is correct but whose config is wrong (dataset
+   mismatch, no Phase 1-4 patterns wired in) - reconcile rather than
+   starting from scratch.
+3. **Run any friction backfill as the Cloud Run Job** set up in
+   `scripts/deploy_curve_backfill_job.sh` / `scripts/backfill-job/`, not
+   an interactive Cloud Shell script - this is what makes a long drain
+   survive the Cloud Shell tab closing, which is what silently killed the
+   28 August backfill attempt. When resuming any stalled backfill by
    moving files back into a watch folder, check whether a live trigger is
    already deployed on that same folder first - that's what caused the
    30 August incident.
 4. Log each step in `pipeline-roadmap.md` as it happens, not after the
-   fact.
+   fact - and commit before ending a session, even mid-task.
 
 ---
 

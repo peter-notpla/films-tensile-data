@@ -718,6 +718,80 @@ phases mostly cannot.
   batched loads. Running as this entry was written; final counts, the
   Gmail 403 follow-up, and re-enabling the live trigger (currently still
   paused) are next (30 August 2026)
+- **Phase 5 checkpoint 1 closed out: backfill confirmed complete, rate-limit
+  handling fixed, alerter's false-positive spam fixed, live trigger
+  restored and re-verified.** Picked up 1 September 2026 after Peter
+  reported both "many files failed processing over the weekend" and 690
+  unread alert emails.
+
+  **Backfill was actually fine**: traced the full manifest history rather
+  than trusting any single query. Grouping by (pipeline, status) alone
+  showed 1,199 failed events against 1,312 successes, which looks
+  alarming; but tracing per source_file showed 1,243 of 1,244 files
+  eventually succeeded, and GCS confirms it (watch folder empty,
+  `-processed/` has 1,243, `-failed-processing/` has exactly the 1
+  pre-existing known-bad file). The failed events were the 30 August
+  incident's rate-limit storm plus a duplicate-GCS-listing race producing
+  phantom late `404` failures for files that had already succeeded and
+  moved (e.g. `sample-205.csv`: real success at 14:25:57, phantom "no such
+  object" failure for the same file at 14:27:49) - no data was actually
+  lost.
+
+  **Found and fixed the real bug: the failure-alerter had no concept of
+  "this failure later succeeded."** `find_new_failures()` alerted on every
+  not-yet-alerted `status='failed'` manifest row, so a file that failed
+  repeatedly during the retry storm before eventually landing still
+  generated an alert (plus an escalation, since the escalation logic reads
+  "failed twice in a row" as needing a human) for every one of those
+  transient attempts. That produced ~690 emails (529 primary alerts sent +
+  escalations, with 523 more still queued and actively sending when this
+  was found - the alerter was still mid-backlog at 03:00 on 1 September,
+  days after the underlying files had already landed). It also couldn't
+  find the file under `FAILED_PREFIX` to route by owner initials (the file
+  had moved to `-processed/`), so everything defaulted to Peter's inbox
+  instead of Katie/Emily's.
+
+  **Immediate action**: paused the `films-pipeline-failure-alert-hourly`
+  Cloud Scheduler job to stop the ongoing send before touching any code.
+  Fixed `find_new_failures()` to exclude any `(pipeline, source_file)` that
+  has a `success` row anywhere in its history (not just "most recent row
+  is failed" - that ordering is exactly what the phantom-404-after-success
+  race breaks). Verified the corrected query read-only against production
+  data first (empty result set, as expected), deployed via
+  `scripts/deploy.sh`, verified live by invoking directly
+  (`{"checked":0,"alerted":0,"dedup_write_failed":0}`), then resumed the
+  scheduler.
+
+  **Root-caused the underlying rate limit, not just the symptom**: found
+  an uncommitted, undeployed fix already sitting in the working tree
+  (`shared/bq_retry.py`, file timestamps mid-incident on 30 August) that
+  wraps BigQuery loads in retry-with-backoff - written live during the
+  incident by an earlier session that ended before committing or logging
+  it, the same failure mode as the 28 August silent session death. It only
+  caught the `429 TooManyRequests` flavor; the manifest also showed 51
+  failures of BigQuery's other rate-limit shape, a plain `403 Forbidden`
+  ("too many api requests per user per method for this user_method
+  (JobService.insertJob)"). Extended `_is_rate_limit()` to catch both,
+  gated on "rate limit" appearing in the message so a genuine permissions
+  403 still raises immediately. Verified the classifier against the three
+  real error strings from the manifest before deploying.
+
+  **Re-enabled the live trigger**: snapshotted `films_tensile_curve_points`
+  (`_snapshot_20260901_0953_pre_trigger_restore`), redeployed
+  `films-tensile-raw-processor` with the retry fix, restored
+  `sa-tensile-ingest@...`'s `roles/run.invoker` binding. Verified live end
+  to end with a synthetic file through the real watch folder (first
+  attempt used the wrong CSV shape for this pipeline and correctly
+  quarantined itself with a clean error - useful negative-path
+  confirmation; second attempt with the right 5-column format landed 5/5
+  rows in BigQuery with correct values). Both test artifacts and the
+  test-file curve rows deleted afterward.
+
+  Committed and logged same-session (this project has a standing history
+  of unlogged/uncommitted background work causing exactly this kind of
+  confusion later - see the 28 August and 30 August entries above). Push
+  pending a GitHub token from Peter. Friction ingestion (Phase 5 step 3,
+  the next item below) has not been started yet (1 September 2026)
 
 ---
 
