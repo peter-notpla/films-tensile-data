@@ -4,16 +4,19 @@
 # directory it's pointed at: nothing outside it, including repo-root
 # shared/, is ever included. See pipeline-roadmap.md item 2.1 / Phase 4.
 #
-# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account]
+# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account] [runtime]
 #   scripts/deploy.sh films-extrusion-csv-processor
 #   scripts/deploy.sh films-extrusion-csv-processor films-extrusion-csv-processor sa-extrusion-ingest@notpla-machine-data.iam.gserviceaccount.com
+#   scripts/deploy.sh films-friction-raw-processor films-friction-raw-processor sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com python312
 #
-# function-name defaults to pipeline-dir, which matches all three
-# pipelines today. service-account, if omitted, leaves the function's
-# current service account untouched (gcloud functions deploy only changes
-# it when --service-account is passed) - see pipeline-roadmap.md item 2.6
-# for the least-privilege SAs this is meant to cut over to, one pipeline
-# at a time.
+# function-name defaults to pipeline-dir, which matches all pipelines
+# today. service-account, if omitted, leaves the function's current
+# service account untouched (gcloud functions deploy only changes it when
+# --service-account is passed) - see pipeline-roadmap.md item 2.6 for the
+# least-privilege SAs this is meant to cut over to, one pipeline at a time.
+# runtime is only needed for a function's first-ever deploy (gcloud
+# requires it then; an existing function keeps its current runtime
+# automatically without it) - leave it unset for every normal redeploy.
 
 set -euo pipefail
 
@@ -66,11 +69,25 @@ if [ "$STAGED_COUNT" -ne "$SOURCE_COUNT" ]; then
 fi
 echo "  staged $STAGED_COUNT file(s)"
 
+# --runtime is only required by gcloud on a function's first-ever deploy
+# (an existing function keeps its current runtime automatically without
+# this flag - and the three original pipelines are on python311, not
+# python312, so passing this unconditionally would silently bump their
+# runtime on next redeploy). RUNTIME_ARGS stays empty for every existing
+# pipeline's normal redeploy; only a brand-new function's first deploy
+# needs $4 set explicitly.
+RUNTIME="${4:-}"
+RUNTIME_ARGS=()
+if [ -n "$RUNTIME" ]; then
+    RUNTIME_ARGS=(--runtime="$RUNTIME")
+fi
+
 if [ -n "$SERVICE_ACCOUNT" ]; then
     echo "Deploying $FUNCTION_NAME (region=$REGION, source=$TARGET_DIR, service-account=$SERVICE_ACCOUNT) ..."
     gcloud functions deploy "$FUNCTION_NAME" \
         --region="$REGION" \
         --gen2 \
+        "${RUNTIME_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --service-account="$SERVICE_ACCOUNT" \
         --quiet
@@ -79,6 +96,7 @@ else
     gcloud functions deploy "$FUNCTION_NAME" \
         --region="$REGION" \
         --gen2 \
+        "${RUNTIME_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --quiet
 fi

@@ -25,6 +25,7 @@ PIPELINE_READABLE = {
     "friction": "Friction Testing",
     "extrusion": "Extrusion",
     "tensile_raw": "Tensile Raw Curve Data",
+    "friction_raw": "Friction Raw Curve Data",
 }
 
 # Where each pipeline's real results live, and which column holds the actual
@@ -35,13 +36,14 @@ PIPELINE_READABLE = {
 # nothing is coming off the machine at all, the case a failure alert can't
 # catch because there's no failed file to alert on.
 #
-# tensile_raw is weaker than the other three: films_tensile_curve_points has
-# no per-row instrument test time (curve files carry no absolute timestamp of
-# their own), only linked_specimen_key (nullable) back to a real test time.
-# Until curve rows carry that joined timestamp, processed_at is used here as
-# an interim "is this pipeline still being fed" proxy rather than a true
-# test-time signal - it will flag the pipeline going silent, but not a
-# machine producing curves later than when they were actually run.
+# tensile_raw and friction_raw are weaker than the other three: their
+# curve_points tables have no per-row instrument test time (curve files
+# carry no absolute timestamp of their own), only linked_specimen_key
+# (nullable) back to a real test time. Until curve rows carry that joined
+# timestamp, processed_at is used here as an interim "is this pipeline
+# still being fed" proxy rather than a true test-time signal - it will
+# flag the pipeline going silent, but not a machine producing curves later
+# than when they were actually run.
 RESULTS_TABLES = {
     "tensile": {
         "table": f"{PROJECT_ID}.films_tensile_london.films_tensile_results",
@@ -57,6 +59,10 @@ RESULTS_TABLES = {
     },
     "tensile_raw": {
         "table": f"{PROJECT_ID}.films_tensile_london.films_tensile_curve_points",
+        "date_column": "processed_at",
+    },
+    "friction_raw": {
+        "table": f"{PROJECT_ID}.machine_data.films_friction_curve_points",
         "date_column": "processed_at",
     },
 }

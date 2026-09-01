@@ -1,6 +1,6 @@
-"""One-off backfill of the existing tensile raw-curve backlog into
-films_tensile_curve_points, using the same shared/curve_parser.py and
-shared/curve_linking.py the live films-tensile-raw-processor pipeline uses,
+"""One-off backfill of an existing raw-curve backlog (tensile or friction)
+into its *_curve_points table, using the same shared/curve_parser.py and
+shared/curve_linking.py the corresponding live raw-processor pipeline uses,
 and writing to the same manifest/row-errors tables so backfilled files are
 as observable as anything the live pipeline handles. Moves each file to the
 same PROCESSED_PREFIX/FAILED_PREFIX the live pipeline uses afterward, so the
@@ -10,11 +10,20 @@ processed this backlog itself.
 Mirrors backfill/backfill.py's shape (see CLAUDE.md's Phase 0.3 note), but
 that script predates the Phase 1 manifest table; this one writes to it.
 
+All config below reads from the environment with tensile's values as
+defaults, so `scripts/deploy_curve_backfill_job.sh` can run this as a
+friction backfill by passing different env vars at execute time - one
+script, not two near-identical copies that can drift out of sync with each
+other the way films-friction-raw-processor's early draft did (dataset
+mismatch against the live friction pipeline, caught during Phase 5 step 3).
+
 Usage: python3 scripts/backfill_curve_points.py
+       PIPELINE_NAME=friction_raw WATCH_PREFIX=... BQ_DATASET=... BQ_TABLE=... RESULTS_TABLE=... python3 scripts/backfill_curve_points.py
 """
 
 import hashlib
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,26 +41,32 @@ from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 PROJECT_ID = "notpla-machine-data"
 BUCKET = "notpla-machine-data"
 
-WATCH_PREFIX = (
+WATCH_PREFIX = os.environ.get(
+    "WATCH_PREFIX",
     "machine-tensiletester-1/tensiletester-films/tensiletester-films-tensile/"
-    "tensiletester-films-tensile-raw-samples/"
+    "tensiletester-films-tensile-raw-samples/",
 )
-PROCESSED_PREFIX = (
+PROCESSED_PREFIX = os.environ.get(
+    "PROCESSED_PREFIX",
     "machine-tensiletester-1/tensiletester-films/tensiletester-films-tensile/"
-    "tensiletester-films-tensile-raw-samples-processed/"
+    "tensiletester-films-tensile-raw-samples-processed/",
 )
-FAILED_PREFIX = (
+FAILED_PREFIX = os.environ.get(
+    "FAILED_PREFIX",
     "machine-tensiletester-1/tensiletester-films/tensiletester-films-tensile/"
-    "tensiletester-films-tensile-raw-samples-failed-processing/"
+    "tensiletester-films-tensile-raw-samples-failed-processing/",
 )
 
-BQ_DATASET = "films_tensile_london"
-BQ_TABLE = "films_tensile_curve_points"
-RESULTS_TABLE = f"{PROJECT_ID}.films_tensile_london.films_tensile_results_all_revisions"
+BQ_DATASET = os.environ.get("BQ_DATASET", "films_tensile_london")
+BQ_TABLE = os.environ.get("BQ_TABLE", "films_tensile_curve_points")
+RESULTS_TABLE = os.environ.get(
+    "RESULTS_TABLE",
+    f"{PROJECT_ID}.films_tensile_london.films_tensile_results_all_revisions",
+)
 
 MANIFEST_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_manifest"
 ROW_ERRORS_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_row_errors"
-PIPELINE_NAME = "tensile_raw"
+PIPELINE_NAME = os.environ.get("PIPELINE_NAME", "tensile_raw")
 MACHINE_ID = "tensiletester-1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

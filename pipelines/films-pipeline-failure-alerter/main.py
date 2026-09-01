@@ -47,6 +47,11 @@ FAILED_PREFIXES = {
         "machine-tensiletester-1/tensiletester-films/tensiletester-films-tensile/"
         "tensiletester-films-tensile-raw-samples-failed-processing/"
     ),
+    "friction_raw": (
+        "machine-tensiletester-1/tensiletester-films/tensiletester-films-friction/"
+        "tensiletester-films-friction-failed-processing/"
+        "tensiletester-films-friction-failed-processing-raw/"
+    ),
 }
 
 INITIALS_COLUMN_HINT = "user initials"
@@ -56,6 +61,7 @@ PIPELINE_READABLE = {
     "friction": "Friction Testing",
     "extrusion": "Extrusion",
     "tensile_raw": "Tensile Raw Curve Data",
+    "friction_raw": "Friction Raw Curve Data",
 }
 
 

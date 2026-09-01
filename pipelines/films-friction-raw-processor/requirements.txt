@@ -1,4 +1,7 @@
-google-cloud-storage
-google-cloud-bigquery
-pandas
-pyarrow
+functions-framework==3.*
+google-cloud-storage==2.*
+google-cloud-bigquery==3.*
+google-cloud-secret-manager==2.*
+google-auth==2.*
+pandas==2.*
+pyarrow==15.*
