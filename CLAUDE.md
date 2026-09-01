@@ -5,7 +5,7 @@ of every session in this repository.
 
 ---
 
-## NEXT STEP (as at 1 September 2026): friction ingestion, using the resilient (Cloud Run Job) pattern
+## NEXT STEP (as at 1 September 2026): grant the friction live trigger its invoker binding, once Peter confirms
 
 Phase 5 checkpoint 1 (tensile curve parser, linker, backfill, live
 pipeline) is **done and closed out**. The 30 August incident's backlog
@@ -19,36 +19,49 @@ alerts on a file that later succeeded (it was re-alerting on every
 transient failure, which is what actually produced ~690 emails - not real
 data loss). Full account in `pipeline-roadmap.md`'s Phase 5 entries.
 
+**Friction ingestion has also since been built, deployed, and fully
+backfilled** - reconstructed from BigQuery/GCS evidence rather than any
+commit or log, because it happened in the same session but was never
+written down (the third occurrence of this project's standing
+unlogged-background-work risk; see `pipeline-roadmap.md`'s newest Phase 5
+entry for the full forensic account). Verified clean: 928/928 real friction
+raw files landed exactly once in `films_friction_curve_points`, zero
+duplicates, watch and failed-processing folders both empty. The manifest's
+738 "failed" rows are phantom 404s from the same GCS-listing race already
+root-caused for tensile that day, harmless and already correctly suppressed
+by the alerter's success-anywhere fix (verified `checked:0, alerted:0`).
+
 **Current state**:
 - `films-tensile-raw-processor` is deployed with the retry fix, its
   Eventarc trigger is **restored and live**, verified end to end with a
   synthetic file (5/5 rows landed correctly). Live tensile curve ingestion
   is working normally again.
-- `films-pipeline-failure-alerter` is deployed with the "never
-  succeeded" fix, hourly schedule resumed, verified live
+- `films-friction-raw-processor` is deployed with its Eventarc trigger
+  created but **deliberately not given an invoker binding yet** - the live
+  path is dormant until Peter confirms it should go live, same as
+  tensile's 30 August recovery sequencing. Its backfill is complete and
+  verified (see above); nothing is currently ingesting friction files.
+- `films-pipeline-failure-alerter` and the weekly digest both cover
+  `tensile_raw` and `friction_raw` now, deployed, verified live
   (`checked:0, alerted:0` against the real backlog - no false positives).
 - Everything above is **committed locally, push pending a GitHub token**
   from Peter (rotates per session, none given yet as of this entry).
 
 Next actions, in order:
-1. Get a GitHub token from Peter and push the 1 September commit.
-2. Repeat the same shape (parser reuse, backfill, deploy, verify) for
-   friction, using `downsample_curve_minmax()` and `bq_retry.py` from the
-   start this time - not retrofitted mid-incident. Note
-   `pipelines/films-friction-raw-processor/` already exists as an early
-   draft whose parsing logic is correct but whose config is wrong (dataset
-   mismatch, no Phase 1-4 patterns wired in) - reconcile rather than
-   starting from scratch.
-3. **Run any friction backfill as the Cloud Run Job** set up in
-   `scripts/deploy_curve_backfill_job.sh` / `scripts/backfill-job/`, not
-   an interactive Cloud Shell script - this is what makes a long drain
-   survive the Cloud Shell tab closing, which is what silently killed the
-   28 August backfill attempt. When resuming any stalled backfill by
-   moving files back into a watch folder, check whether a live trigger is
-   already deployed on that same folder first - that's what caused the
-   30 August incident.
+1. Get a GitHub token from Peter and push (5 commits ahead of `origin/main`
+   as of this entry).
+2. **Ask Peter whether to grant `sa-friction-ingest`'s `roles/run.invoker`
+   binding** on `films-friction-raw-processor` to go live - this is a
+   production infrastructure change and needs Peter directly, the same as
+   the 30 August invoker-revoke did (Claude Code's auto-mode classifier
+   correctly blocks this class of change).
+3. When resuming any stalled backfill by moving files back into a watch
+   folder, check whether a live trigger is already deployed on that same
+   folder first - that's what caused the 30 August incident.
 4. Log each step in `pipeline-roadmap.md` as it happens, not after the
-   fact - and commit before ending a session, even mid-task.
+   fact - and commit before ending a session, even mid-task. This has now
+   failed three times (28 August, 30 August, 1 September) on exactly this
+   project; treat it as the single highest-value habit to fix.
 
 ---
 
@@ -208,7 +221,8 @@ everything or that a query returned everything.
 pipelines/films-tensile-csv-processor/     deployed, fixed 14 May 2026
 pipelines/films-friction-csv-processor/    deployed, all-STRING schema
 pipelines/films-extrusion-csv-processor/   deployed, fixed 21 Aug 2026
-pipelines/films-friction-raw-processor/    NOT deployed
+pipelines/films-tensile-raw-processor/     deployed, live trigger active
+pipelines/films-friction-raw-processor/    deployed, trigger dormant (no invoker binding)
 backfill/                                  one-off scripts, legacy
 ```
 
@@ -340,11 +354,10 @@ needing resolution are in `pass-filter-extrusion-lookup.md`. Once resolved,
 build the 8 output tables per that file's spec.
 
 Genuine backlogs, deliberately untouched:
-- 738 friction raw files failed, no processor deployed
-- 197 friction raw files queued
-- Tensile raw sample files: no longer untouched - Phase 5 checkpoint 1 is
-  actively backfilling this backlog, see the NEXT STEP section above and
-  `pipeline-roadmap.md`
+- Tensile and friction raw curve backlogs are both resolved: Phase 5
+  checkpoint 1 backfilled tensile (1,243/1,244) and friction (928/928),
+  both verified clean against GCS and BigQuery. See the NEXT STEP section
+  above and `pipeline-roadmap.md`.
 
 **`notpla-machine-data` is a hierarchical-namespace bucket, so object
 versioning cannot be enabled (GCS does not support it on HNS buckets).**

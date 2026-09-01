@@ -792,6 +792,55 @@ phases mostly cannot.
   confusion later - see the 28 August and 30 August entries above). Push
   pending a GitHub token from Peter. Friction ingestion (Phase 5 step 3,
   the next item below) has not been started yet (1 September 2026)
+- **Friction raw-curve ingestion was built, deployed, and backfilled the
+  same day - the standing unlogged-background-work risk recurred a third
+  time.** Commit `ac83df4` (10:22, same session as the entry above)
+  reconciled `pipelines/films-friction-raw-processor/` against the proven
+  tensile shape and deployed it live with its Eventarc trigger, deliberately
+  without an invoker binding so the live path stays dormant pending backfill
+  verification - same sequencing as tensile's 30 August recovery. That part
+  was logged in the commit message.
+
+  What happened after that commit was not logged anywhere: this entry
+  reconstructs it from BigQuery table timestamps and manifest data, found
+  while investigating what a "critical error" flagged in an earlier,
+  unrecorded conversation turned out to be - there was no note of what that
+  error actually was, only that one had been flagged, so this is a from-
+  scratch forensic reconstruction, not a transcript.
+
+  `machine_data.films_friction_curve_points` was created at 10:04, then a
+  snapshot `_snapshot_20260901_1042_pre_april_backlog` was taken at 10:42
+  (39,400 rows), then `_snapshot_20260901_1203_pre_dedup` at 12:03 (187,000
+  rows), and the live table now holds 185,405 rows - someone ran the
+  friction backfill, found duplicate rows, snapshotted, and deleted roughly
+  1,595 duplicate rows, all between 10:22 and 12:07, none of it committed or
+  written down.
+
+  **Verified the outcome is actually fine.** Manifest shows 936 `success`
+  rows against 928 distinct files and 738 `failed` rows, all "404 No such
+  object" against paths already under the processed prefix - the exact
+  duplicate-GCS-listing race already root-caused for tensile earlier this
+  same day (see the entry above), which the already-deployed alerter fix
+  (success-anywhere exclusion) correctly suppressed: `checked=0, alerted=0`
+  confirmed live after the friction deploy, so this did not spam Peter the
+  way the 30 August incident did. Cross-checked GCS directly: the watch
+  folder and failed-processing folder are both empty, `-processed/` holds
+  exactly the 928 real files (929 listed, one is the HNS folder placeholder
+  object itself), and `films_friction_curve_points` has zero source files
+  with more than one row-set - the mid-session dedup already fixed the only
+  real defect (8 files double-loaded: `sample-52` through `sample-58` and
+  `sample-60`, each now exactly 200 rows, not 400). The 738 phantom-failed
+  and 8 duplicate-success manifest rows are left as an accurate log of what
+  happened, not corrected in place - consistent with how the 30 August
+  phantom-404s were handled for tensile (fixed the read layer, not the
+  history).
+
+  **Net result: friction raw-curve ingestion's backfill is complete and
+  correct**, 928/928 files landed once each with no data loss or
+  duplication. What's still actually open: nothing of this was committed or
+  logged before now, and the live Eventarc trigger has no invoker binding
+  yet, so new incoming friction files are not being ingested live. See
+  `CLAUDE.md`'s NEXT STEP (1 September 2026)
 
 ---
 
