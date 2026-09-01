@@ -1028,14 +1028,17 @@ answer, one row per timepoint per test, which is the pattern already in use
 elsewhere in the business and already in your own project:
 `process_parameters_long_raw` holds 1.14 million rows across 8 files.
 
-Assets already waiting:
-- 739 friction raw files in failed processing
-- 197 friction raw files queued for a processor that was never deployed
-- 1,244 tensile raw sample files in a folder nothing watches
+**Checkpoint 1, done (1 September 2026):** both raw curve pipelines
+(`films-tensile-raw-processor`, `films-friction-raw-processor`) are built,
+backfilled, and live. `films_tensile_curve_points` and
+`films_friction_curve_points` hold downsampled (min/max-per-bucket)
+long-format curve data linked to specimens where a confident match exists.
+Full account across the entries under "Phase 5 checkpoint 1" above.
 
-That last set means you have been collecting tensile curve data since February
-without realising it, which gives you a corpus to prototype against before
-touching friction.
+Not yet started: anything downstream of the curve-point tables existing -
+e.g. surfacing curve shape (flat vs. oscillating) in Looker, or folding
+curve data into the Phase 6 analysis layer. No plan drafted for this yet;
+needs scoping with Peter before picking a direction.
 
 ---
 
