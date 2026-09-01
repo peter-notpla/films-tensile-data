@@ -1188,6 +1188,56 @@ which wins.
 
 ---
 
+### `template_name` backfill (1 September 2026)
+
+Investigating curve-linking coverage (see the curve analysis views entry
+above) surfaced that `template_name` was `NULL` on every row of both
+`films_tensile_results_all_revisions` (3,510 rows) and
+`films_friction_raw_all_revisions` (3,790 rows), despite
+`shared/tensile_parser.py` and `shared/friction_parser.py` both correctly
+extracting it from row 1 of the CSV (confirmed by replaying the parser
+against a real fixture). Root cause: these rows all predate the
+Phase 2.2 key model where `template_name` was added, and nothing ever
+backfilled the historical rows - only newly-processed files were getting
+it live.
+
+Snapshotted both tables first
+(`films_tensile_results_all_revisions_snapshot_20260901_pre_template_backfill`,
+`films_friction_raw_all_revisions_snapshot_20260901_pre_template_backfill`).
+Backfilled by reading row 1 directly from each row's original file in GCS
+(via `source_file`, checked against each pipeline's actual deployed
+processed/failed/watch prefixes, not just the repo defaults) and
+`MERGE`-ing the result back in by exact `source_file` match, only where
+`template_name` was still `NULL`. Verified: friction fully resolved (0/3,790
+`NULL` remaining). Tensile resolved 3,459/3,510; **51 rows across 23 files
+remain `NULL`** because those specific files no longer exist anywhere in
+GCS (processed, failed, or original watch prefix) - confirmed by directly
+listing each date's processed folder, not just a single missed lookup.
+All 51 are `row_state = 'current'`, i.e. live rows Looker would see, not
+archived duplicates. Dates affected: 17 & 19 March, 14 & 21 May, 12 June
+2026. Not fabricated a value for these; left `NULL` and flagging for
+Peter - the underlying row data is still intact in BigQuery, only the
+original source CSV is gone, so there's no way to recover the template
+name for them from this pipeline alone.
+
+**New finding, not yet acted on**: about 2,022 of the now-populated tensile
+rows have `template_name` values like
+`"TensileTest-Films(V1),,,,,,,,,,,,,,,"` instead of `"TensileTest-Films(V1)"`
+- the Excel trailing-comma padding CLAUDE.md's "Excel destroys precision"
+section already documents for other fields is also leaking into
+`template_name`, because `shared/tensile_parser.py`'s
+`template_name = lines[0].strip()` only strips whitespace, not the comma
+padding. This fragments what should be one grouping value into two, which
+would undermine using `template_name` to narrow curve-link candidates
+(the original motivation for checking this at all). Not fixed here -
+flagging as a separate follow-up since it's a parser code change affecting
+every future live row, not a one-off data backfill.
+
+Temp staging tables (`films_pipeline_ops.tmp_tensile_template_map`,
+`tmp_friction_template_map`) used for the `MERGE` were dropped after.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
