@@ -4,10 +4,11 @@
 # directory it's pointed at: nothing outside it, including repo-root
 # shared/, is ever included. See pipeline-roadmap.md item 2.1 / Phase 4.
 #
-# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account] [runtime]
+# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account] [runtime] [memory]
 #   scripts/deploy.sh films-extrusion-csv-processor
 #   scripts/deploy.sh films-extrusion-csv-processor films-extrusion-csv-processor sa-extrusion-ingest@notpla-machine-data.iam.gserviceaccount.com
 #   scripts/deploy.sh films-friction-raw-processor films-friction-raw-processor sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com python312
+#   scripts/deploy.sh films-pipeline-failure-alerter films-pipeline-failure-alerter "" "" 512Mi
 #
 # function-name defaults to pipeline-dir, which matches all pipelines
 # today. service-account, if omitted, leaves the function's current
@@ -17,6 +18,8 @@
 # runtime is only needed for a function's first-ever deploy (gcloud
 # requires it then; an existing function keeps its current runtime
 # automatically without it) - leave it unset for every normal redeploy.
+# memory, if omitted, leaves the function's current memory untouched, same
+# reasoning as runtime - only pass it when actually changing the limit.
 
 set -euo pipefail
 
@@ -82,12 +85,19 @@ if [ -n "$RUNTIME" ]; then
     RUNTIME_ARGS=(--runtime="$RUNTIME")
 fi
 
+MEMORY="${5:-}"
+MEMORY_ARGS=()
+if [ -n "$MEMORY" ]; then
+    MEMORY_ARGS=(--memory="$MEMORY")
+fi
+
 if [ -n "$SERVICE_ACCOUNT" ]; then
     echo "Deploying $FUNCTION_NAME (region=$REGION, source=$TARGET_DIR, service-account=$SERVICE_ACCOUNT) ..."
     gcloud functions deploy "$FUNCTION_NAME" \
         --region="$REGION" \
         --gen2 \
         "${RUNTIME_ARGS[@]}" \
+        "${MEMORY_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --service-account="$SERVICE_ACCOUNT" \
         --quiet
@@ -97,6 +107,7 @@ else
         --region="$REGION" \
         --gen2 \
         "${RUNTIME_ARGS[@]}" \
+        "${MEMORY_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --quiet
 fi
