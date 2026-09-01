@@ -20,10 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import storage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.bq_retry import load_dataframe_with_retry
 from shared.curve_linking import find_specimen_link
 from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 
@@ -118,6 +120,23 @@ def main():
     blobs = list(gcs.list_blobs(BUCKET, prefix=WATCH_PREFIX))
     csv_blobs = [b for b in blobs if b.name.lower().endswith(".csv")]
 
+    # Dedupe by name: a GCS list() called right after a large burst of moves
+    # on the same prefix can transiently return the same object twice
+    # (observed 30 August 2026, ~40 duplicate entries after moving hundreds
+    # of files back into this folder). Keeping only the first occurrence
+    # means a duplicate is silently skipped rather than double-processed -
+    # the second attempt would otherwise 404 on an already-moved source and
+    # be wrongly quarantined as a failure.
+    seen_names = set()
+    deduped = []
+    for b in csv_blobs:
+        if b.name not in seen_names:
+            seen_names.add(b.name)
+            deduped.append(b)
+    if len(deduped) != len(csv_blobs):
+        logger.warning("Listing had %d duplicate entries, deduped", len(csv_blobs) - len(deduped))
+    csv_blobs = deduped
+
     logger.info("Found %d CSVs to backfill", len(csv_blobs))
 
     processed_files = 0
@@ -130,8 +149,20 @@ def main():
         filename = name.split("/")[-1]
         gcs_uri = f"gs://{BUCKET}/{name}"
         checksum = None
+
         try:
             content = bucket.blob(name).download_as_bytes()
+        except NotFound:
+            # Source object already gone - already handled by an earlier
+            # entry (see the dedup above) or moved by something else since
+            # listing. Not a real failure: skip without quarantining or
+            # logging to the manifest, since nothing was loaded yet and
+            # there's nothing here to record that isn't already recorded
+            # by whatever processed it first.
+            logger.warning("[%d/%d] SKIP (already gone): %s", i, len(csv_blobs), filename)
+            continue
+
+        try:
             checksum = hashlib.md5(content).hexdigest()
             blob.reload()
             gcs_created_at = blob.time_created
@@ -146,8 +177,7 @@ def main():
             if specimen_key is not None:
                 linked_files += 1
 
-            job = bq.load_table_from_dataframe(df, table_id)
-            job.result()
+            load_dataframe_with_retry(bq, df, table_id)
 
             move_blob(gcs, name, f"{PROCESSED_PREFIX}{filename}")
             write_row_errors(bq, row_errors, source_file=gcs_uri, checksum=checksum)

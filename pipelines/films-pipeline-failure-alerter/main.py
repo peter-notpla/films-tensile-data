@@ -60,6 +60,24 @@ PIPELINE_READABLE = {
 
 
 def find_new_failures(bq):
+    # Only alert on a file that has NEVER succeeded (no 'success' row
+    # exists anywhere in its manifest history) - not just "most recent
+    # row is failed", because a duplicate GCS listing during a burst of
+    # file moves can produce a late phantom 404 several minutes AFTER the
+    # file's real success already landed and moved it out of the watch
+    # folder (observed 30 August 2026: sample-205's real success logged at
+    # 14:25:57, a phantom "no such object" failure for the same file at
+    # 14:27:49 - the phantom row is chronologically latest but the file
+    # was never actually broken). Excluding by "ever succeeded" rather
+    # than "latest row" is what makes this immune to that ordering trap.
+    #
+    # A retry storm (that same incident) can also leave a file with many
+    # failed rows before it eventually succeeds; alerting on every one of
+    # them reports transient, self-resolved infra retries as if they were
+    # real bad-data failures needing a human to fix a CSV. That's what
+    # produced ~690 emails for a backlog where 1,243/1,244 files
+    # ultimately landed fine - see pipeline-roadmap.md's Phase 5 entry.
+    #
     # checksum is NULL whenever a file fails before it can be downloaded
     # (e.g. a GCS read timeout) - `a.checksum = m.checksum` is never true
     # for two NULLs, so those rows looked "never alerted" on every run and
@@ -67,9 +85,17 @@ def find_new_failures(bq):
     # null-safe checksum match is the real identity of "have we alerted on
     # this exact failure before".
     query = f"""
+        WITH ever_succeeded AS (
+            SELECT DISTINCT pipeline, source_file
+            FROM `{MANIFEST_TABLE}`
+            WHERE status = 'success'
+        )
         SELECT m.pipeline, m.source_file, m.checksum, m.error_message, m.processed_at
         FROM `{MANIFEST_TABLE}` m
+        LEFT JOIN ever_succeeded s
+          ON s.pipeline = m.pipeline AND s.source_file = m.source_file
         WHERE m.status = 'failed'
+          AND s.source_file IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM `{ALERTS_SENT_TABLE}` a
             WHERE a.pipeline = m.pipeline

@@ -8,6 +8,7 @@ import functions_framework
 from google.cloud import bigquery, storage
 
 from shared import email_style, gmail_sender
+from shared.bq_retry import load_dataframe_with_retry
 from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 from shared.curve_linking import find_specimen_link
 
@@ -183,8 +184,7 @@ def process_file(cloud_event):
         df["link_time_delta_seconds"] = delta_seconds
 
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
-        job = bq_client.load_table_from_dataframe(df, table_id)
-        job.result()
+        load_dataframe_with_retry(bq_client, df, table_id)
 
         print(
             f"Loaded {len(df)} rows to {table_id} "

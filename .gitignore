@@ -1,3 +1,6 @@
+# Claude Code local settings (personal permission overrides, not shared)
+.claude/settings.local.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
