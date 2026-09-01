@@ -5,6 +5,64 @@ of every session in this repository.
 
 ---
 
+## PRIORITY FOR NEXT SESSION (1 September 2026): scope has drifted, check against the original plan first
+
+Before picking up new work, compare against `project-briefing.md` §8 (the
+agreed Phase 0-6 plan). Several sessions' worth of work has gone to things
+adjacent to that plan rather than the plan itself. Read this before adding
+anything else.
+
+**Extra scope added, not in the original six phases:**
+- The pass-filter roll extrusion lookup (`pass-filter-extrusion-lookup.md`)
+  - a full separate workstream, not mentioned anywhere in the original
+  briefing or roadmap. Stalled at 18/36 rolls unresolved, blocked on Peter.
+- The curve-to-specimen analysis views (`films_tensile_curve_analysis`,
+  `films_friction_curve_analysis`) and the linking-quality work behind
+  them. Phase 5 as scoped stopped at "build the raw curve pipelines"
+  (checkpoint 1); everything downstream of that, including this, was
+  invented mid-session.
+- The `template_name` NULL bug and its fix (parser fix, live redeploy,
+  2,046-row re-normalization) - found only while chasing the curve-linking
+  work above. Not anticipated anywhere.
+- Alert delivery was rebuilt twice, neither time as originally decided.
+  The plan named Google Apps Script. What got built was Cloud Monitoring
+  alert policies first (found broken, the `crossSeriesReducer` bug), then
+  replaced with direct Gmail API sends. Apps Script was never used.
+- Tests and CI: flagged in the original briefing's "standing items not yet
+  scheduled" (not one of the six phases), started this session on its own
+  initiative rather than by request.
+
+**Remains from the original plan, still genuinely open:**
+- **Phase 1.5, the Looker pipeline health page.** Never built - no
+  `resolved_at` flag, no page. The rest of Phase 1 shipped; this didn't.
+- **Phase 2.4, typed columns.** Only additive `_num` FLOAT64 siblings on
+  friction; the original STRING columns are still what's live. Not "typed
+  everywhere" as scoped.
+- **Phase 5, everything past checkpoint 1.** Surfacing curve shape in
+  Looker, folding curve data into an analysis layer - both still "no plan
+  drafted" per the roadmap's own words.
+- **Phase 6, in full.** `films_results_long` and its dedup rule (6.1, 6.2)
+  were never built. This is the actual "pick a Pellet ID, see every test
+  on that roll" deliverable - the curve views above are adjacent, not a
+  substitute. **Needs a decision: build it, formally drop it, or keep
+  letting adjacent work substitute for it.**
+- Standing items from the original briefing §9, still open: key rotation
+  (`mecmesin-uploader`'s Jan 2026 key, the appspot default account's
+  `roles/editor`), the four-dataset naming consolidation, and the 5
+  unmatched friction rows with ~5.0 static CoF flagged as a possible
+  calibration fault, never investigated further.
+- "Talk to Callum" about his `tensile_v21_*` pattern - open since the
+  first briefing.
+- The end-user manual, explicitly meant to be written last, once the
+  system stopped changing. Never started, and "last" keeps moving.
+- `README.md` is stale (still lists `films-friction-raw-processor` as "not
+  deployed"; it's been live since Phase 5 checkpoint 1).
+
+Fastest way to close the gap: land the blocked push below, then get a real
+decision on Phase 6 scope before starting anything else adjacent to it.
+
+---
+
 ## NEXT STEP (as at 1 September 2026): two blockers left, both need Peter's judgment
 
 Both raw curve pipelines (tensile, friction) are **live and fully
