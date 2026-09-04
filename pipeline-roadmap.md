@@ -1052,6 +1052,51 @@ specimens ingested, most recent test date. This covers the silence case that
 a failure-triggered alert cannot, which matters because extrusion currently
 fails without producing a failed file.
 
+### 1.5 Looker pipeline health page
+
+**Done (4 September 2026).** Two new views in `films_pipeline_ops`, both
+additive (no schema change to `films_pipeline_manifest`, nothing existing
+touched):
+
+- `films_pipeline_open_issues` - one row per (pipeline, source_file) that
+  has ever failed, with `first_failed_at`, `last_failed_at`,
+  `failure_count`, `latest_error_message`, and `resolved_at` (the earliest
+  `success` row ever logged for that same file, NULL if none exists yet).
+  `is_open` is `resolved_at IS NULL`, matching the exact "ever succeeded"
+  resolution logic `films-pipeline-failure-alerter/main.py`'s
+  `find_new_failures` already uses, rather than inventing a second
+  definition of "resolved" - deliberately, since that function's own
+  comments document a real incident (a phantom late 404 arriving after a
+  file's real success) that "most recent row is failed" gets wrong and
+  "no success row exists anywhere" gets right.
+- `films_pipeline_summary` - one row per pipeline: `files_processed_ok`,
+  `last_seen_at`, `open_issue_count`, `resolved_issue_count`.
+
+Caught and fixed a bug in my own first draft before shipping it: the
+summary view's first version joined `films_pipeline_open_issues` back onto
+every manifest row and counted with `COUNTIF`, which double-counted a file
+once per retry (a file with 5 failed manifest rows inflated the open count
+by 5). Fixed to `COUNT(DISTINCT ... source_file)`; verified the corrected
+counts match a direct per-pipeline query.
+
+Verified against the live data: as of today, 11 open issues across all 5
+pipelines, every one either the `FILMS-CYCLICALLOADING(V1)` manifest
+history (kept as a log entry per Peter's choice above, so it will show as
+permanently open since no success row will ever exist for a deleted file -
+expected, not a bug) or a synthetic verification/deploy-check file from a
+prior session's own testing (`CLAUDE-VERIFICATION-*`,
+`sanity_check_manifest_test_*`, `rowerr_deploy_check_*`, `alert_test_*`,
+`mixedrow_friction_*`) - nothing real.
+
+**Looker Studio setup (Peter, once, in the browser):** Add Data Source ->
+BigQuery -> `notpla-machine-data` -> `films_pipeline_ops` -> pick
+`films_pipeline_open_issues`, repeat for `films_pipeline_summary`. Suggested
+layout for a new page: a scorecard or table from `films_pipeline_summary`
+(one row per pipeline, `last_seen_at` sorted ascending surfaces silence
+fastest) plus a table from `films_pipeline_open_issues` filtered to
+`is_open = TRUE`, sorted by `first_failed_at` ascending. No blending
+needed, no changes to any existing page or data source.
+
 ---
 
 ## Phase 2: v2 architecture
@@ -1086,9 +1131,46 @@ agreement, which is how `row_num`, `sd_percent_variation` and
 schema and the parser mapping from it.
 
 ### 2.4 Typed columns everywhere
-`films_friction_raw` stores every measurement as STRING because the friction
-parser never calls `pd.to_numeric`. Blanks land as `""` rather than NULL and
-all sorting is lexicographic.
+
+**Corrected (4 September 2026)**, additively, same pattern as the 1
+September CoF-precedence fix: `films_friction_raw_all_revisions` already
+had FLOAT `_num` siblings for every measurement (added at some earlier
+point, but never promoted - the original STRING columns were still what
+Looker actually saw). Left the base table exactly as it was, including the
+`_num` columns, and rebuilt the `films_friction_raw` view (what Looker
+points at) to expose the 6 real measurement fields plus relative humidity
+under their **original names**, now correctly typed FLOAT from the `_num`
+values, and `sample_number`/`sample_repeat_number` as INT64 (cleaner than
+FLOAT for a count Looker would otherwise render as "5.0"). Also cast
+`sample` STRING to INT64 for parity with tensile's own `sample` column,
+which was typed from the start - verified first that every real value is
+purely numeric with no leading zeros, so nothing is lost.
+
+Verified before promoting anything, not assumed: checked every STRING
+value against its `_num` sibling for a real parse gap. Found two genuine
+ones, both correctly left NULL rather than guessed: 54 rows where relative
+humidity is the literal dropdown value `"Other (Specify in Report)"`, not a
+number, and 2 rows (one malformed file,
+`Results-FrictionTest-Films(V1)-20260413-131417.csv`) where sample/repeat
+number are stray text (`"x"`, `"c l"`) instead of digits. Row count and
+values spot-checked between old and new view: 985 rows both sides, matches.
+
+Deliberately left `pellet_id`/`extrusion_id`/`test_surface`/notes/user
+initials as STRING - they're identifiers and free text, not measurements,
+matching the same distinction tensile's already-typed table draws (its own
+hand-entered `sample_number` is STRING too, only the actual measurement
+columns are FLOAT).
+
+**Looker impact: none required, but worth doing once.** Same view name,
+same field names, so no page needs repointing. Looker Studio caches each
+field's type at the point it was added to a chart, so the CoF/force/RH
+columns will keep rendering (just still sorting as text) until Peter opens
+the `films_friction_raw` data source in Looker Studio and clicks **Refresh
+Fields** (data source settings, top right) - after that, sorting,
+aggregation (SUM/AVG) and numeric formatting on these fields will work
+correctly for the first time. The 9 `_num` columns are still in the view
+too (harmless duplicates) in case anything already references them by that
+name; safe to ignore or remove from a chart later.
 
 ### 2.5 Metadata revision handling
 Same key, same measurements, different metadata is a correction, not a
