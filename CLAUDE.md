@@ -33,14 +33,25 @@ anything else.
   initiative rather than by request.
 
 **Remains from the original plan, still genuinely open:**
-- **Phase 1.5, the Looker pipeline health page.** Never built - no
-  `resolved_at` flag, no page. The rest of Phase 1 shipped; this didn't.
-- **Phase 2.4, typed columns.** Only additive `_num` FLOAT64 siblings on
-  friction; the original STRING columns are still what's live. Not "typed
-  everywhere" as scoped.
-- **Phase 5, everything past checkpoint 1.** Surfacing curve shape in
-  Looker, folding curve data into an analysis layer - both still "no plan
-  drafted" per the roadmap's own words.
+- ~~**Phase 1.5, the Looker pipeline health page.**~~ Done 4 September
+  2026: `films_pipeline_open_issues` / `films_pipeline_summary` views in
+  `films_pipeline_ops`, `resolved_at` included. Peter still needs to add
+  them as Looker data sources and build the page - see
+  `pipeline-roadmap.md`'s Phase 1.5 entry for the exact steps.
+- ~~**Phase 2.4, typed columns.**~~ Corrected 4 September 2026: friction's
+  `_num` siblings promoted to the live `films_friction_raw` view under
+  their original names. Needs a one-time "Refresh Fields" click in Looker
+  Studio on that data source - see the roadmap's Phase 2.4 entry.
+- **Phase 5, everything past checkpoint 1.** Curve-to-specimen linking now
+  additionally requires a template match (4 September), a real precision
+  win for every curve ingested from here on, but confirmed unable to
+  improve historical backfill coverage - the original per-file GCS
+  timestamps were destroyed by the move-to-processed step and can't be
+  recovered. Two new Looker pages (tensile/friction curve browsers, filter
+  + overlay) are designed and ready to build in Looker Studio's editor
+  against the existing curve_analysis views - full recipe in the
+  roadmap's "Two new Looker pages" entry. Not built here since that's a
+  browser-only step.
 - **Phase 6, in full.** `films_results_long` and its dedup rule (6.1, 6.2)
   were never built. This is the actual "pick a Pellet ID, see every test
   on that roll" deliverable - the curve views above are adjacent, not a
