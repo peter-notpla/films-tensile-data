@@ -1167,6 +1167,47 @@ e.g. surfacing curve shape (flat vs. oscillating) in Looker, or folding
 curve data into the Phase 6 analysis layer. No plan drafted for this yet;
 needs scoping with Peter before picking a direction.
 
+### Failed raw curve check (4 September 2026)
+
+Checked both `...-raw-samples-failed-processing/` folders live against GCS,
+not just docs. Friction: empty, nothing to do. Tensile: one file,
+`raw-FILMS-CYCLICALLOADING(V1)-sample-1.csv`.
+
+Root-caused, not just retried: pulled the file (61 bytes, header row only,
+zero data rows) and the manifest history
+(`films_pipeline_ops.films_pipeline_manifest`, filtered on filename) shows
+it failed identically four separate times across 28-30 August with the same
+`No valid numeric rows found` error - not a transient rate-limit like its
+sibling `sample-2` (which failed once on a 429 and succeeded on retry, and
+is correctly no longer in the failed folder). Cross-checked against the
+archived summary file for this template
+(`tensiletester-films-tensile-archive/reconciled-20260820/Results-FILMS-CYCLICALLOADING(V1)-20260323-165413.csv`):
+only one sample was ever recorded for this template, dated 23 March 2026,
+with `pellet_id`/`extrusion_id` both literally `"TEST"` and near-zero
+values (Max Load 0.001 N) - a calibration/dry-run test, not production
+data. Conclusion: `sample-1`'s raw curve is a genuinely empty capture from
+an aborted or skipped test run, not a parser bug. No code fix applies.
+Left the file in place in the failed-processing folder (already quarantined,
+doing no harm) rather than moving or deleting it unilaterally - flagged
+below for Peter to say archive or discard.
+
+Also checked `films_pipeline_row_errors` for both `tensile_raw` (899 rows
+across 345 files) and `friction_raw` (249 rows across 171 files) in case
+row-level rejections were silently eating real data inside otherwise-
+successful files. Every single one, both pipelines, is the identical
+string `raw_row = "Time (s),Load (N),Displacement (mm),Stress (MPa),Strain
+(%)"` - the column header itself, re-appearing mid-file (up to 12 times in
+one file). `shared/curve_parser.py` already detects and skips these (all
+five numeric fields unparseable) and logs them to `row_errors` rather than
+silently dropping or crashing - working as designed, confirms no real data
+is being lost. Root cause of the repeated header is presumably a
+VectorPro export quirk (pause/resume mid-test) - not chased further since
+it's already handled correctly.
+
+**Net result: no pipeline bug found in either raw curve pipeline.** One
+inert, unfixable junk file remains quarantined pending Peter's call on
+archive vs. discard.
+
 ---
 
 ## Phase 6: analysis layer
