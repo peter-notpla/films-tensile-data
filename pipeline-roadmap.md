@@ -1508,6 +1508,14 @@ curve-parser output, but they're not physically meaningful for a
 friction pull test and are unpopulated, so no equivalent split was
 needed there.
 
+**Corrected same day**: Peter wanted the standard engineering pair, not
+time-based charts - `Load (N) vs Displacement (mm)` and `Stress (MPa) vs
+Strain (%)`, dropping the third (Strain vs Time) chart entirely. Same two
+charts, just X axis changed from `time_s` to `displacement_mm` /
+`strain_pct` respectively (each chart's Sort auto-followed its X axis
+field). Young's Modulus reference table kept as-is, moved up to close the
+gap left by the deleted chart.
+
 ---
 
 ## Phase 6: analysis layer
