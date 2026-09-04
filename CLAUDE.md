@@ -5,6 +5,50 @@ of every session in this repository.
 
 ---
 
+## BLOCKED (4 September 2026): building the 3 Looker pages via browser automation, waiting on the Chrome extension
+
+Peter wants 3 Looker Studio pages built for him directly (not just handed a
+recipe): the Phase 1.5 pipeline health page, and the two Phase 5 curve
+browser pages (tensile, friction) with multi-select filters and overlay.
+Every BigQuery-side prerequisite is done and verified - see
+`pipeline-roadmap.md`'s "1.5 Looker pipeline health page" and "Two new
+Looker pages" entries for the exact views, field names, and step-by-step
+build recipe (data source, filter controls, chart type, breakdown
+dimension). Nothing further is needed on the data side; this is purely
+about driving the Looker Studio UI.
+
+**Blocker**: this needs the `claude-in-chrome` browser automation
+capability, and it isn't working yet. Timeline this session: the skill
+first reported "Claude in Chrome extension is not set up" (install at
+https://claude.ai/chrome, connect via `/chrome`). Peter ran `/chrome`,
+which reported "Connected." Re-invoking the `claude-in-chrome` skill after
+that returned `Unknown skill: claude-in-chrome` (it had been in the
+available-skills list minutes earlier). Searched for the actual browser-
+control tools (`mcp__claude-in-chrome__*` or similar) several ways -
+none found, only unrelated tools (WebFetch, DesignSync, etc.) matched.
+Peter ran `/chrome` a second time with no output shown at all. **Not
+resolved as of this entry** - the extension may not actually be installed
+yet despite `/chrome` reporting "Connected" once, or there's a harness-
+side gap between "Connected" and the tools actually being exposed to a
+session. Not investigated further than the above.
+
+**To resume**: confirm the Claude in Chrome extension is actually
+installed at https://claude.ai/chrome (not just that `/chrome` was run),
+then re-run `/chrome` and check its output actually confirms an active,
+usable session rather than a bare "Connected." Once that's solid, ask
+Claude to search for the browser tools again before assuming they're
+there - if a search still turns up nothing, that's a harness issue worth
+reporting via feedback, not something to keep retrying blindly.
+
+**Once the tools are actually available**: this is the first time this
+session will act inside Peter's live Google account on a shared,
+production dashboard (not a sandbox) - go carefully on the first pass,
+narrate each step, and don't assume a click landed correctly without
+checking. Peter should keep an eye on this first run rather than walking
+away.
+
+---
+
 ## PRIORITY FOR NEXT SESSION (1 September 2026): scope has drifted, check against the original plan first
 
 Before picking up new work, compare against `project-briefing.md` §8 (the
