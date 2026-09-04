@@ -1097,6 +1097,20 @@ fastest) plus a table from `films_pipeline_open_issues` filtered to
 `is_open = TRUE`, sorted by `first_failed_at` ascending. No blending
 needed, no changes to any existing page or data source.
 
+**Built (4 September 2026), via browser automation once `claude-in-chrome`
+came available.** The existing "Pipeline Health" tab was found already
+pointed at the old `films_pipeline_manifest` table (plus a stale
+instructional text box left over from an earlier session referencing that
+same wrong table) - both deleted and the page rebuilt exactly per the
+recipe above: `films_pipeline_summary` table sorted `last_seen_at`
+ascending, `films_pipeline_open_issues` table filtered `is_open = TRUE`
+sorted `first_failed_at` ascending. Verified against this entry's own "11
+open issues across all 5 pipelines" count above - matched exactly once the
+filter was applied. See `CLAUDE.md`'s "DONE (4 September 2026)" entry for
+the full session note, including a Looker Studio gotcha (filter controls'
+bound field can silently auto-remap to the wrong column when you switch
+their data source - always re-check the Control field after).
+
 ---
 
 ## Phase 2: v2 architecture
@@ -1422,11 +1436,18 @@ filter field asked for. Looker Studio setup, once, in the browser:
    `extrusion_id`, `test_date`, `repeat_no` for whatever's currently
    filtered, as a legend / sanity check on exactly which curves are shown.
 
-Not built here since Looker Studio's editor isn't something this session
-can drive directly - Peter builds the page itself from this recipe. Both
-views already verified against real data (1 September); no further
-BigQuery-side work needed for the pages to work today, at today's linking
-coverage.
+~~Not built here since Looker Studio's editor isn't something this session
+can drive directly - Peter builds the page itself from this recipe.~~
+**Built (4 September 2026)**, via browser automation once `claude-in-chrome`
+came available. Both pages built exactly per the recipe above, as new
+"Tensile Curves" / "Friction Curves" tabs duplicated from the existing
+"Tensile" / "Friction" pages first (to inherit the Notpla logo/header/
+scorecard styling), then had their old results tables and bar charts
+stripped out and the 6 filter controls + line chart rebuilt against the
+curve_analysis views. Step 4's optional legend table was **not** built -
+flagging again in case Peter wants it. Both views already verified against
+real data (1 September); no further BigQuery-side work needed for the
+pages to work today, at today's linking coverage.
 
 ---
 

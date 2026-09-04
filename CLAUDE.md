@@ -5,47 +5,49 @@ of every session in this repository.
 
 ---
 
-## BLOCKED (4 September 2026): building the 3 Looker pages via browser automation, waiting on the Chrome extension
+## DONE (4 September 2026): all 3 Looker pages built via browser automation
 
-Peter wants 3 Looker Studio pages built for him directly (not just handed a
-recipe): the Phase 1.5 pipeline health page, and the two Phase 5 curve
-browser pages (tensile, friction) with multi-select filters and overlay.
-Every BigQuery-side prerequisite is done and verified - see
-`pipeline-roadmap.md`'s "1.5 Looker pipeline health page" and "Two new
-Looker pages" entries for the exact views, field names, and step-by-step
-build recipe (data source, filter controls, chart type, breakdown
-dimension). Nothing further is needed on the data side; this is purely
-about driving the Looker Studio UI.
+The `claude-in-chrome` blocker from earlier the same day resolved itself -
+the tools showed up as loadable in a later session with no further action
+needed (never root-caused beyond that; if it recurs, confirm the extension
+is installed at https://claude.ai/chrome, re-run `/chrome`, then search for
+the browser tools again before assuming they're missing). All 3 Looker
+Studio pages Peter wanted built directly are now live on the Films
+Dashboard report:
 
-**Blocker**: this needs the `claude-in-chrome` browser automation
-capability, and it isn't working yet. Timeline this session: the skill
-first reported "Claude in Chrome extension is not set up" (install at
-https://claude.ai/chrome, connect via `/chrome`). Peter ran `/chrome`,
-which reported "Connected." Re-invoking the `claude-in-chrome` skill after
-that returned `Unknown skill: claude-in-chrome` (it had been in the
-available-skills list minutes earlier). Searched for the actual browser-
-control tools (`mcp__claude-in-chrome__*` or similar) several ways -
-none found, only unrelated tools (WebFetch, DesignSync, etc.) matched.
-Peter ran `/chrome` a second time with no output shown at all. **Not
-resolved as of this entry** - the extension may not actually be installed
-yet despite `/chrome` reporting "Connected" once, or there's a harness-
-side gap between "Connected" and the tools actually being exposed to a
-session. Not investigated further than the above.
+- **Pipeline Health** tab - rebuilt from scratch. It had drifted onto the
+  old `films_pipeline_manifest` table (plus a leftover stale instructional
+  text box from an earlier session, referencing that same wrong table) -
+  both deleted. Rebuilt against `films_pipeline_open_issues` /
+  `films_pipeline_summary` per the roadmap's Phase 1.5 recipe: a
+  `films_pipeline_summary` table sorted by `last_seen_at` ascending
+  (surfaces silence fastest) and a `films_pipeline_open_issues` table
+  filtered to `is_open = TRUE`, sorted by `first_failed_at` ascending.
+  Verified against the roadmap's known count: 11 open issues, matching.
+- **Tensile Curves** tab (new) - duplicated from the existing "Tensile"
+  page to inherit its Notpla logo/header/scorecard styling exactly, then
+  gutted (removed the mechanical-properties filters, results tables, and
+  bar-chart "Graphs" section) and rebuilt per the roadmap's "Two new
+  Looker pages" recipe: 6 multi-select filter controls (Pellet ID,
+  Extrusion ID, Test Date, Relative Humidity, Test Direction, Repeat No.)
+  bound to `films_tensile_curve_analysis`, plus a line chart -
+  dimension `time_s`, metric `load_n`, **breakdown dimension
+  `specimen_key`** (this is what makes overlay work: selecting several
+  specimens in the filters draws one line per specimen automatically).
+- **Friction Curves** tab (new) - same pattern against
+  `films_friction_curve_analysis`, with `test_surface` swapped in for
+  `test_direction` per the roadmap.
 
-**To resume**: confirm the Claude in Chrome extension is actually
-installed at https://claude.ai/chrome (not just that `/chrome` was run),
-then re-run `/chrome` and check its output actually confirms an active,
-usable session rather than a bare "Connected." Once that's solid, ask
-Claude to search for the browser tools again before assuming they're
-there - if a search still turns up nothing, that's a harness issue worth
-reporting via feedback, not something to keep retrying blindly.
+**Gotcha hit repeatedly, worth knowing if touching these pages again**:
+Looker Studio's data-source-switch auto-remaps a filter control's bound
+field by matching order/type, not name - it silently mapped "Repeat
+Number" to `specimen_key` and "Relative Humidity" to `extrusion_id` more
+than once. After changing any filter's data source, always check the
+Control field, don't trust the auto-pick.
 
-**Once the tools are actually available**: this is the first time this
-session will act inside Peter's live Google account on a shared,
-production dashboard (not a sandbox) - go carefully on the first pass,
-narrate each step, and don't assume a click landed correctly without
-checking. Peter should keep an eye on this first run rather than walking
-away.
+**Not done**: the roadmap's optional legend table under each curve chart
+(listing `specimen_key`/`pellet_id`/`extrusion_id`/`test_date`/`repeat_no`
+for whatever's currently filtered) - Peter can ask for it if wanted.
 
 ---
 
@@ -79,9 +81,9 @@ anything else.
 **Remains from the original plan, still genuinely open:**
 - ~~**Phase 1.5, the Looker pipeline health page.**~~ Done 4 September
   2026: `films_pipeline_open_issues` / `films_pipeline_summary` views in
-  `films_pipeline_ops`, `resolved_at` included. Peter still needs to add
-  them as Looker data sources and build the page - see
-  `pipeline-roadmap.md`'s Phase 1.5 entry for the exact steps.
+  `films_pipeline_ops`, `resolved_at` included, and the Looker page itself
+  built and live the same day - see `pipeline-roadmap.md`'s Phase 1.5
+  entry.
 - ~~**Phase 2.4, typed columns.**~~ Corrected 4 September 2026: friction's
   `_num` siblings promoted to the live `films_friction_raw` view under
   their original names. Needs a one-time "Refresh Fields" click in Looker
@@ -91,11 +93,10 @@ anything else.
   win for every curve ingested from here on, but confirmed unable to
   improve historical backfill coverage - the original per-file GCS
   timestamps were destroyed by the move-to-processed step and can't be
-  recovered. Two new Looker pages (tensile/friction curve browsers, filter
-  + overlay) are designed and ready to build in Looker Studio's editor
-  against the existing curve_analysis views - full recipe in the
-  roadmap's "Two new Looker pages" entry. Not built here since that's a
-  browser-only step.
+  recovered. ~~Two new Looker pages (tensile/friction curve browsers,
+  filter + overlay).~~ Built and live 4 September 2026 - see the "DONE"
+  entry at the top of this file and the roadmap's "Two new Looker pages"
+  entry.
 - **Phase 6, in full.** `films_results_long` and its dedup rule (6.1, 6.2)
   were never built. This is the actual "pick a Pellet ID, see every test
   on that roll" deliverable - the curve views above are adjacent, not a
