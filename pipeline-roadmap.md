@@ -1320,6 +1320,114 @@ not live problems; every one of those specific files succeeded under a
 different invocation the same day. All 5 Cloud Run services report
 `Ready: True`. Pipeline is fully green.
 
+### `curve_linking.py`: template_name match, and why backfill can't be re-linked (4 September 2026)
+
+Peter asked for two new Looker pages (tensile, friction) filterable by
+Pellet ID, Extrusion ID, Test Date, Relative Humidity, Repeat Number, plus
+Test Direction (tensile) / Test Surface (friction), with multiple curves
+overlayable on one chart - and for curves to get their properties
+correctly assigned going forward. Both curve_analysis views already carry
+every one of those fields (built 1 September), so the remaining work was
+linking quality, not new columns.
+
+**Shipped**: `shared/curve_linking.py`'s `find_specimen_link` now requires
+a `template_name` match (case-insensitive) alongside nearest-time, not
+time alone. Checked first that template names match cleanly between curve
+filenames and results rows on every real file (they do, both instruments).
+This is a pure precision improvement for live traffic - rules out matching
+a curve to a same-minute specimen under a different template - at zero
+coverage cost, since a live-triggered file's GCS creation time already
+closely tracks its real test time. Window stays 30 minutes; no need to
+widen it for live traffic, since live coverage was never the problem.
+Updated all three call sites (`films-tensile-raw-processor`,
+`films-friction-raw-processor`, `scripts/backfill_curve_points.py`) and
+`shared/verify_curve_parser.py`'s linking test, which was checking two
+specific real files by their live GCS blob timestamp - broken by the
+finding below regardless of the code change, since those files no longer
+sit at the path it was reading. Replaced with synthetic-timestamp cases
+built from a real specimen row (see below).
+
+**Investigated first, before touching anything: can this also re-link the
+870/1,242 unmatched tensile and 823/928 unmatched friction historical
+curve files? No - the underlying signal is gone, not just under-used.**
+`find_specimen_link` needs each file's GCS creation time from when it was
+*first uploaded* to the watch folder. Once a file is successfully
+processed, `move_blob` moves it via `copy_blob` + `delete` - the copy is a
+new object generation, so its `time_created` reflects the move, not the
+original upload. Confirmed on a real example: `sample-30.csv` recorded a
+69-second link delta at ingest time (in `link_time_delta_seconds`,
+`films_tensile_curve_points`), but that same file's *current* blob
+metadata in the processed folder implies a nearest same-template candidate
+over 4,000 minutes away - because the timestamp being read is now the
+30-31 August backfill run's move time, not the original test-adjacent
+upload time. Also checked for a GCS audit-log trail of the original
+`storage.objects.create` events as a fallback source of the true
+timestamp - none found. Neither the raw file, the curve_points table, nor
+the manifest table stored the original `gcs_created_at` anywhere
+permanent; only the derived delta was kept. **This means no join-key
+change, however clever, can recover linking for a file that has already
+been moved - the input the join needs no longer exists.** Widening the
+window or adding template matching only helps files not yet processed,
+which after two completed backfills is none of the historical backlog.
+
+**Net effect**: coverage for existing curves stays exactly as documented 1
+September (108 tensile specimens / 17 pellets, 2 friction specimens / 2
+pellets) - unless Peter wants to explore a materially different signal
+(none identified; not attempted further here, flagging rather than
+guessing). Every curve ingested by the live pipeline from now on links
+with the added template-name safety and should continue landing with a
+small delta, the same as it already did for live-triggered files before
+this change.
+
+Verified before deploying: replayed `shared/curve_parser.py` against all
+1,242 real tensile raw files (1242/1242 succeeded, matching min/max
+preserved on every file, same as always), and the new
+`verify_linking()`'s three synthetic cases (same template within window ->
+matches; same template outside window -> no match; different template
+within window -> no match) all passed. Deployed both raw processors
+(`films-tensile-raw-processor-00007-jab`,
+`films-friction-raw-processor-00003-joc`), then a genuine live end-to-end
+test through each real GCS watch folder (`raw-CLAUDE-VERIFY-LINKING-
+sample-999999997.csv`, a template guaranteed not to match any real
+specimen): both landed with `status=success`, `rows_inserted=3`, and
+correctly `linked_specimen_key=NULL` - proving the new template-matching
+code path runs cleanly in production, not just in the local check. Test
+rows and files deleted afterward.
+
+### Two new Looker pages: tensile and friction curve browsers (4 September 2026)
+
+No new views needed - `films_tensile_curve_analysis` and
+`films_friction_curve_analysis` (built 1 September) already carry every
+filter field asked for. Looker Studio setup, once, in the browser:
+
+1. **Add both as data sources** if not already added: Add Data Source ->
+   BigQuery -> `notpla-machine-data` -> `films_tensile_london` ->
+   `films_tensile_curve_analysis`; repeat for `machine_data` ->
+   `films_friction_curve_analysis`.
+2. **New page, one per instrument.** Add filter controls (Filter Control,
+   not just a page-level filter, so they behave as dropdowns): `pellet_id`,
+   `extrusion_id`, `test_date`, `relative_humidity_pct`, `repeat_no`, plus
+   `test_direction` on the tensile page / `test_surface` on the friction
+   page. Set each control's "Select multiple values" option on so more
+   than one curve can be chosen at once.
+3. **The chart itself**: a Time Series or Line chart. Dimension (x-axis):
+   `time_s`. Metric (y-axis): `load_n` (or `stress_mpa`/`displacement_mm` -
+   whichever Peter wants to see first; easy to duplicate the chart for
+   others). **Breakdown Dimension: `specimen_key`.** This is what makes
+   overlay work - Looker Studio draws one line per distinct value of the
+   breakdown dimension automatically, so selecting several specimens in
+   the filter controls overlays their curves on the same chart with no
+   extra configuration.
+4. Optional: a table below the chart listing `specimen_key`, `pellet_id`,
+   `extrusion_id`, `test_date`, `repeat_no` for whatever's currently
+   filtered, as a legend / sanity check on exactly which curves are shown.
+
+Not built here since Looker Studio's editor isn't something this session
+can drive directly - Peter builds the page itself from this recipe. Both
+views already verified against real data (1 September); no further
+BigQuery-side work needed for the pages to work today, at today's linking
+coverage.
+
 ---
 
 ## Phase 6: analysis layer

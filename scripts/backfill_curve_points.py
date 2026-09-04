@@ -186,7 +186,9 @@ def main():
             rows_total = len(df) + len(row_errors)
             df = downsample_curve_minmax(df)
 
-            specimen_key, delta_seconds = find_specimen_link(bq, RESULTS_TABLE, gcs_created_at)
+            specimen_key, delta_seconds = find_specimen_link(
+                bq, RESULTS_TABLE, gcs_created_at, df["template_name"].iloc[0]
+            )
             df["linked_specimen_key"] = specimen_key
             df["link_time_delta_seconds"] = delta_seconds
             if specimen_key is not None:

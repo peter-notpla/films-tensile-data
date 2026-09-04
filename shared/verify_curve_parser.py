@@ -94,27 +94,50 @@ def verify_parser():
 
 
 def verify_linking():
+    """Synthetic cases against a real specimen row, not live GCS blob
+    metadata: once a raw file is moved to processed/failed (as this whole
+    backlog now is), `move_blob`'s copy_blob-then-delete gives the copy a
+    new object generation and therefore a new `time_created` reflecting the
+    move, not the original upload - confirmed 4 September 2026, see
+    curve_linking.py's docstring. Real blob timestamps from this point
+    onward are meaningless for verification, so this constructs
+    `gcs_created_at` directly from a known-real specimen's own
+    `timestamp_start` instead, which stays valid regardless of file moves."""
     bq = bigquery.Client(project=PROJECT_ID)
-    storage_client = storage.Client(project=PROJECT_ID)
+
+    row = list(bq.query(f"""
+        SELECT specimen_key, template_name, timestamp_start
+        FROM `{TENSILE_RESULTS_TABLE}`
+        WHERE row_state = 'current' AND template_name IS NOT NULL
+        ORDER BY timestamp_start DESC
+        LIMIT 1
+    """).result())[0]
+
+    print("\nLinking verification against a real specimen row, synthetic timestamps:")
 
     cases = [
-        ("raw-TensileTest-Films(V1)-sample-100.csv", "expected: linkable, small delta"),
-        ("raw-TensileTest-Films(V1)-sample-107.csv", "expected: unlinkable (outside window)"),
+        ("same template, 60s off", row["template_name"], 60, True),
+        ("same template, outside window", row["template_name"], 3600, False),
+        ("different template, 60s off", row["template_name"] + "-DOES-NOT-EXIST", 60, False),
     ]
+    all_ok = True
+    for label, template_name, offset_seconds, expect_match in cases:
+        from datetime import timedelta
+        synthetic_created_at = row["timestamp_start"] + timedelta(seconds=offset_seconds)
+        specimen_key, delta_seconds = find_specimen_link(
+            bq, TENSILE_RESULTS_TABLE, synthetic_created_at, template_name
+        )
+        got_match = specimen_key is not None
+        ok = got_match == expect_match
+        all_ok = all_ok and ok
+        print(f"  {label}: expect_match={expect_match} got specimen_key={specimen_key} "
+              f"delta_seconds={delta_seconds} {'OK' if ok else 'MISMATCH'}")
 
-    print("\nLinking verification against known real cases:")
-    for filename, expectation in cases:
-        blob = storage_client.bucket(BUCKET_NAME).blob(f"{RAW_SAMPLES_PREFIX}{filename}")
-        blob.reload()
-        created_at = blob.time_created
-
-        specimen_key, delta_seconds = find_specimen_link(bq, TENSILE_RESULTS_TABLE, created_at)
-        print(f"  {filename} (created {created_at}, {expectation})")
-        print(f"    -> specimen_key={specimen_key} delta_seconds={delta_seconds}")
+    return all_ok
 
 
 if __name__ == "__main__":
     total, succeeded, failed, minmax_mismatches = verify_parser()
-    verify_linking()
-    if failed or succeeded != total or minmax_mismatches:
+    linking_ok = verify_linking()
+    if failed or succeeded != total or minmax_mismatches or not linking_ok:
         sys.exit(1)

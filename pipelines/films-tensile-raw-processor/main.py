@@ -179,7 +179,9 @@ def process_file(cloud_event):
         rows_total = len(df) + len(row_errors)
         df = downsample_curve_minmax(df)
 
-        specimen_key, delta_seconds = find_specimen_link(bq_client, RESULTS_TABLE, gcs_created_at)
+        specimen_key, delta_seconds = find_specimen_link(
+            bq_client, RESULTS_TABLE, gcs_created_at, df["template_name"].iloc[0]
+        )
         df["linked_specimen_key"] = specimen_key
         df["link_time_delta_seconds"] = delta_seconds
 
