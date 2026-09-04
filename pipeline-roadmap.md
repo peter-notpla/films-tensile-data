@@ -1204,9 +1204,39 @@ is being lost. Root cause of the repeated header is presumably a
 VectorPro export quirk (pause/resume mid-test) - not chased further since
 it's already handled correctly.
 
-**Net result: no pipeline bug found in either raw curve pipeline.** One
-inert, unfixable junk file remains quarantined pending Peter's call on
-archive vs. discard.
+**Net result: no pipeline bug found in either raw curve pipeline.**
+
+**Update, same day:** Peter identified the whole `FILMS-CYCLICALLOADING(V1)`
+template as an operator mistake, not a real test, and asked for it removed
+entirely - files and results both. Full scope found by searching GCS and
+every relevant BigQuery table, not assumed: 3 GCS files total (`sample-1`
+in failed-processing, `sample-2` in processed, plus an archived Results
+CSV in `tensiletester-films-tensile-archive/reconciled-20260820/` that
+turned out to have never been ingested - `films_tensile_results_all_revisions`
+had zero rows for this template already), and 200 rows in
+`films_tensile_curve_points` (from `sample-2`'s successful load, confirmed
+not linked to any real specimen before deleting). Snapshotted
+(`films_tensile_curve_points_snapshot_20260904_pre_cyclicalloading_delete`),
+deleted the 200 rows and all 3 GCS files, verified 0 rows and 0 files
+remain. Kept the 8 `films_pipeline_manifest` log rows on Peter's call - they're
+operational history of what the pipeline did, not the operator's mistaken
+data. Tensile's failed-processing folder is now genuinely empty, matching
+friction's.
+
+Also did a from-scratch pipeline health audit while investigating this: for
+every one of the 5 pipelines, checked full manifest history for any file
+that failed and never later succeeded. Result: after removing this
+template, the only such files across the whole project's history are known
+synthetic verification files from prior sessions' own deploy/alert testing
+(`CLAUDE-VERIFICATION-*`, `sanity_check_manifest_test_*`,
+`rowerr_deploy_check_*`, `alert_test_*`, `mixedrow_friction_*`), never real
+production data. The large "failed" counts visible in a naive manifest
+query (605 tensile 404s on 30 Aug, 738 friction 404s on 1 Sep) are
+concurrent-retry races during backfill/cutover days - a duplicate
+invocation losing a race for a file another invocation had already moved -
+not live problems; every one of those specific files succeeded under a
+different invocation the same day. All 5 Cloud Run services report
+`Ready: True`. Pipeline is fully green.
 
 ---
 

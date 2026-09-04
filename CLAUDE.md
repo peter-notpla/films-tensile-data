@@ -380,12 +380,15 @@ Email delivery confirmed by Peter (27 August 2026): the repeat-failure
 escalation email, the alert subject-line fix, and the Friday digest (1.4)
 all reached peter@notpla.com. No open loose ends remain from Phase 1.
 
-Checked live 4 September 2026: friction's failed-processing folder is
-empty. Tensile's has one file, `raw-FILMS-CYCLICALLOADING(V1)-sample-1.csv`,
+Checked live 4 September 2026: both failed-processing folders are empty.
+The one file that was there (`raw-FILMS-CYCLICALLOADING(V1)-sample-1.csv`,
 root-caused as a genuinely empty capture from a March 2026 `"TEST"`-labelled
-calibration run (not production data, not a parser bug) - see
-`pipeline-roadmap.md`'s "Failed raw curve check" entry under Phase 5.
-Otherwise, anything appearing in either folder is a live problem.
+calibration run, not a parser bug) has since been removed at Peter's
+request along with the rest of that template's data - see
+`pipeline-roadmap.md`'s "Failed raw curve check" entry under Phase 5 for
+the full account, including a from-scratch pipeline health audit across
+all 5 pipelines that confirmed everything else is green. Anything
+appearing in either folder from here is a live problem.
 
 ### Table naming: `films_tensile_results` / `films_friction_raw` are views
 
