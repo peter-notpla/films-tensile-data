@@ -5,6 +5,34 @@ of every session in this repository.
 
 ---
 
+## DONE (4 September 2026): Tensile/Friction Curves pages were broken, now fixed and Tensile split into 3 metrics
+
+Peter reported the Tensile Curves and Friction Curves pages built earlier
+the same day "do not work." Root cause on both: the line chart's Sort was
+set to the metric descending instead of `time_s` ascending, and every
+breakdown series past the first defaulted to "Bars" style instead of
+"Line" (Looker Studio has no bulk-apply for per-series style, so each of
+the 20 series slots had to be clicked individually) - together these
+turned real curves into a meaningless sawtooth of disconnected spikes.
+Fixed on both pages: sort to `time_s` ascending, all series set to Line,
+point/series caps raised to their max (5000 points, 20 series), "Group
+the rest as Others" turned off. Verified by selecting real pellets and
+confirming genuine rising (tensile) / oscillating stick-slip (friction)
+curve shapes.
+
+Tensile Curves also split into three stacked line charts - "Load (N) vs
+Time", "Stress (MPa) vs Time", "Strain (%) vs Time" - plus a small
+`films_tensile_results`-sourced table for Young's Modulus (MPa), since
+modulus is a scalar per specimen, not a value that varies over time, so
+it can't be a fourth curve line. Friction Curves was left as the single
+`load_n` chart - its schema carries unused stress/strain columns
+inherited from the shared curve-parser output, but they're not
+physically meaningful for a friction test. Full account, including the
+exact broken settings found, in `pipeline-roadmap.md`'s Phase 5 entry
+dated the same day.
+
+---
+
 ## DONE (4 September 2026): all 3 Looker pages built via browser automation
 
 The `claude-in-chrome` blocker from earlier the same day resolved itself -

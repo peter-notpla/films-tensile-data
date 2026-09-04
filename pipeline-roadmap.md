@@ -1449,6 +1449,65 @@ flagging again in case Peter wants it. Both views already verified against
 real data (1 September); no further BigQuery-side work needed for the
 pages to work today, at today's linking coverage.
 
+### Both curve chart pages were actually broken; fixed, and Tensile Curves split into load/stress/strain (4 September 2026)
+
+Peter reported both new curve pages "do not work." Diagnosed live in the
+browser (`claude-in-chrome`), editing the report directly:
+
+**Root cause, found on both pages' line charts**: two independent bugs
+stacked on top of each other.
+1. The chart's **Sort was set to the metric (`load_n`) descending**
+   instead of the x-axis dimension (`time_s`) ascending - a leftover
+   default from whatever base chart type the recipe's chart was built
+   from. This made the x-axis a value-ranked list, not a time axis, so
+   the "curve" was really every (specimen, timepoint) point sorted by
+   load into one meaningless descending sawtooth.
+2. **Every breakdown series past the first defaulted to "Bars" instead of
+   "Line"** in the chart's per-series Style settings (`Series #1` was
+   Line, `Series #2` through whatever the cap was were all Bars) - so
+   even after fixing the sort, only the first specimen in the legend drew
+   as a real connected curve; the rest rendered as disconnected vertical
+   spikes. Also found the breakdown dimension's "Number of series" was
+   capped at 10 (tensile) / 10 (friction) with "Group the rest as
+   'Others'" on, and the x-axis "Number of points" capped at 500 - both
+   would silently truncate or merge specimens once a filter selection
+   got past that count.
+
+**Fixed on both Tensile Curves and Friction Curves**: sort changed to
+`time_s` ascending, all 20 breakdown series individually set to Line
+(clicked through each one in the Style panel - Looker Studio has no
+"apply to all series" control), "Number of points" raised to 5000 (the
+per-chart max), "Number of series" raised to 20 (the per-chart max), and
+"Group the rest as 'Others'" turned off on both dimension and breakdown
+(so an over-cap selection now silently drops the excess rather than
+plotting a misleading merged average). Verified by selecting real
+pellets on each page (single pellet, then two pellets together) and
+confirming the curves render as genuine rising/oscillating shapes
+matching the real physical tests, not sawtooth spikes.
+
+**Tensile Curves also split into three stacked charts**: Peter wanted
+either four curves (load/stress/strain/modulus) or one chart with a
+metric switcher, whichever was easier. Modulus is a single scalar per
+specimen from `films_tensile_results` (the slope of the elastic region),
+not a value that varies over `time_s`, so it can't be a fourth curve line
+on a shared time axis - flagged to Peter in a text label on the page
+rather than silently dropped. Built instead: three duplicate line charts
+(each inheriting the fixed sort/series-type/caps from the first) titled
+"Load (N) vs Time", "Stress (MPa) vs Time", "Strain (%) vs Time", stacked
+on the page under the same six filter controls; plus a small reference
+table below them sourced from `films_tensile_results` (not the curve
+view) showing Pellet ID / Extrusion ID / Sample No. / Direction / Young's
+Modulus (MPa) for whatever the Pellet ID / Extrusion ID / Test Direction
+filters currently narrow to - `Repeat No.` doesn't cross-filter this
+table since that control is bound to the curve view's `repeat_no` field
+and the results table's matching field is named `sample`, a naming
+mismatch not resolved here. Friction Curves was left as the single
+existing `load_n` vs time chart - friction's raw curve schema also
+carries `stress_mpa`/`strain_pct` columns inherited from the shared
+curve-parser output, but they're not physically meaningful for a
+friction pull test and are unpopulated, so no equivalent split was
+needed there.
+
 ---
 
 ## Phase 6: analysis layer
