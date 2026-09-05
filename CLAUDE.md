@@ -5,6 +5,47 @@ of every session in this repository.
 
 ---
 
+## DONE (5 September 2026, second session): fixed `Repeat No.` and the remaining dotted curves on Tensile Curves
+
+Peter reported the same-day polish above hadn't fully landed: `Repeat No.`
+was mapping to VectorPro's unstable `sample` counter (hundreds/thousands,
+not 1-5), and several curves were still rendering as scattered dots.
+
+- **`Repeat No.` fix**: `films_tensile_curve_analysis` was built (1
+  September) on the stated assumption tensile has no hand-entered repeat
+  field like friction's - wrong. `shared/tensile_parser.py` parses
+  `sample_number` from the CSV's "Sample Number (Prompt For Value - Before
+  Test)" column, a real per-test hand-entered value, distinct from the
+  `sample` auto-counter, and it's exactly what the original "Tensile"
+  page's own `Repeat Number` filter already uses (confirmed live before
+  touching anything). Changed the view's `repeat_no` column from `r.sample`
+  to `r.sample_number` (`CREATE OR REPLACE VIEW`, old SQL saved first),
+  clicked **Refresh Fields** on the data source so the STRING type change
+  took effect. Verified: filter values now read a clean 1-6.
+- **Dots root cause, different from the same-day fix above**: the earlier
+  fix rounded `displacement_mm`/`strain_pct` to 1 decimal to collapse the
+  category axis. That resolution is too fine for the real data -
+  `films_tensile_curve_points` is downsampled to roughly one point pair
+  per 0.6s, which at typical crosshead speed skips 0.1mm bins
+  unpredictably, leaving genuine gaps (1,000+ gaps over 1.5x bin width,
+  confirmed by SQL). Widened the two calculated fields to
+  `ROUND(displacement_mm/0.5,0)*0.5` and `ROUND(strain_pct/0.75,0)*0.75` -
+  0 gaps at those bin sizes. Verified on both charts at all three Curve
+  Detail Level settings; curves are now fully continuous.
+- **Curve Detail Level dropdown**: tested directly, found no fault -
+  correct exclusive selection, correctly drives both charts, resets to
+  default correctly. Most likely the two bugs above were making the whole
+  chart look broken regardless of the level selected. Worth knowing: the
+  dropdown's click sometimes silently fails to register a selection
+  (Looker Studio UI quirk) - confirm the header label text changed before
+  closing it.
+
+Full account, including the SQL gap analysis and exact bin-size
+measurements, in `pipeline-roadmap.md`'s matching 5 September entry under
+Phase 5.
+
+---
+
 ## DONE (5 September 2026): Tensile Curves polish + Pipeline Health rebuilt as scorecards, via browser automation
 
 Peter asked for four things on the Tensile Curves page and one on Pipeline

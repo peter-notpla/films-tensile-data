@@ -1545,6 +1545,82 @@ didn't render in this Looker Studio version; and whether the
 a table since it's a variable-length list of individual failures, not fixed
 per-pipeline properties).
 
+### Tensile Curves: real `repeat_no` fix and root cause of the remaining scattered dots (5 September 2026)
+
+Peter reported two things still wrong after the polish above: the new
+`Repeat No.` filter on Tensile Curves was actually returning VectorPro's
+`sample` counter, not a true 1-5 repeat, and several curves were still
+rendering as disconnected dots/dashes rather than smooth lines.
+
+**`repeat_no` root cause**: the earlier "Curve analysis views" work (1
+September) mapped `repeat_no` from tensile's `sample` column - VectorPro's
+internal per-template auto-counter, explicitly documented elsewhere in
+CLAUDE.md as unstable (resets on template copy, offset/resequenced by past
+manual Excel backfills) - on the stated assumption that tensile has "no
+separate hand-entered repeat number the way friction does." That assumption
+was wrong: `shared/tensile_parser.py` parses a second, genuinely
+hand-entered field, `sample_number` (from the CSV's "Sample Number (Prompt
+For Value - Before Test)" column, same shape as friction's own
+`sample_repeat_number_prompt_for_value_before_test`), and it's exactly
+what the existing "Tensile" (mechanical properties) page's own working
+"Repeat Number" filter is bound to - confirmed live in Looker before
+changing anything. Checked its real distribution in
+`films_tensile_results`: overwhelmingly 1-5 (576/575/573/528/526 rows)
+with a long tail of backfill-artifact values, matching "1-5 repeats per
+humidity per direction per extrusion ID" exactly.
+
+**Fixed**: `films_tensile_curve_analysis` (view, `films_tensile_london`)
+changed from `r.sample AS repeat_no` to `r.sample_number AS repeat_no`
+(`CREATE OR REPLACE VIEW`; old definition saved to a local scratch file
+first, trivially revertible since it's a view, not a table write). This
+changes `repeat_no`'s type from INT64 to STRING - clicked **Refresh
+Fields** on the `films_tensile_curve_analysis` data source in Looker
+Studio afterward (same "Refresh Fields" requirement as the 4 September
+Phase 2.4 typed-columns fix) so the `Repeat No.` control picks up the new
+type; verified live, values now read a clean 1-6, not raw sample numbers
+in the hundreds/thousands.
+
+**Dots root cause (different from the 5 September polish fix)**: that
+earlier fix rounded `displacement_mm`/`strain_pct` to 1 decimal place to
+collapse the shared category axis enough for Looker to draw connected
+lines. Checked with SQL whether the resulting 0.1-unit bins actually stay
+gap-free per specimen: they don't. `films_tensile_curve_points` is
+downsampled to a min/max pair roughly every 0.6s, and at typical crosshead
+speed that advances displacement by an amount close to the 0.1mm bin
+width - so bins get skipped unpredictably, producing genuine gaps between
+consecutive plotted points for a given specimen (over 1,000 gaps larger
+than 1.5x the bin width across all specimens, confirmed by binning
+`ROUND(displacement_mm/bin)*bin` and measuring consecutive-value deltas
+per specimen at several bin sizes). Not a Looker style/series bug - every
+series checked in the chart's Style panel was correctly Line/Solid; the
+break is real missing data at that resolution. Widening the bin size
+removes it: 0 gaps at 0.6mm (displacement), 0 gaps at 0.75% (strain).
+**Fixed** by editing the `Displacement (mm)` and `Strain (%)` calculated
+fields on the `films_tensile_curve_analysis` data source from
+`ROUND(displacement_mm, 1)` / `ROUND(strain_pct, 1)` to
+`ROUND(displacement_mm/0.5, 0)*0.5` / `ROUND(strain_pct/0.75, 0)*0.75`.
+Verified live on both Tensile Curves charts, at all three Curve Detail
+Level settings (Pellet ID, Extrusion ID, and the previously-worst-affected
+Sample level) - all curves now render as fully continuous smooth lines,
+zoomed in to confirm no residual isolated points.
+
+**Curve Detail Level dropdown**: tested directly rather than assumed -
+all three levels select correctly and exclusively (checking one
+un-checks the previous, confirmed not a multi-select bug), correctly
+drive the breakdown label on both charts, and the page correctly resets
+to the `Pellet ID (mean curve)` default. No underlying fault found;
+Peter's "broken" impression was most likely the combined effect of the
+two bugs above making the chart output look meaningless regardless of
+which level was selected. One real UX rough edge worth knowing: the
+control's checkbox-style dropdown occasionally didn't register a click
+(silently kept the old selection) - a Looker Studio interaction quirk,
+not a configuration fault; worth clicking an option and confirming the
+label text updated before closing the dropdown.
+
+Friction Curves was not touched - it plots `load_n` against `time_s`, not
+`displacement_mm`/`strain_pct`, so this specific binning issue doesn't
+apply there, and Peter didn't report a problem on that page.
+
 ---
 
 ## Phase 6: analysis layer
