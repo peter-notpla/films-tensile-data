@@ -5,6 +5,74 @@ of every session in this repository.
 
 ---
 
+## DONE (5 September 2026): Tensile Curves polish + Pipeline Health rebuilt as scorecards, via browser automation
+
+Peter asked for four things on the Tensile Curves page and one on Pipeline
+Health, then walked away and asked for autonomous completion (no further
+questions). All done directly in Looker Studio via `claude-in-chrome`:
+
+- **Axis titles**: both curve charts now show real axis titles - "Displacement
+  (mm)" / "Load (N)" and "Strain (%)" / "Stress (MPa)" - by renaming the
+  underlying fields on `films_tensile_curve_analysis` (was previously just
+  the raw field name, and the axis-title toggle was off on one chart).
+- **Dots-not-curves root cause found and fixed**: the charts were rendering
+  as scattered points because each specimen's raw `displacement_mm`/
+  `strain_pct` values are essentially unique floats, so the shared category
+  axis had almost no overlap between series - Looker Studio draws isolated
+  markers, not connected segments, when a series has data at only a handful
+  of the axis's thousands of categories. Fixed by adding two calculated
+  fields, `displacement_mm` and `strain_pct` **rounded to 1 decimal place**,
+  used as the chart X-axes instead of the raw columns. This collapses the
+  category count enough that curves render as continuous connected lines,
+  and is also what makes the mean-curve aggregation below work.
+- **Legend readability**: added a `Curve Breakdown Label` calculated field
+  (CASE on the new drill-level parameter, see below) used as the Breakdown
+  Dimension instead of raw `specimen_key` - legend now shows short codes
+  like "EV AB AI AM 251117 HZ PF 1019" instead of
+  "tensiletester-1|tensile|...".
+- **Drill-down (Pellet ID mean -> Extrusion ID mean -> individual sample)**:
+  Looker Studio's native multi-field "Drill down" feature (used on the
+  Tensile page's bar chart, e.g. Pellet ID -> Extrusion ID -> ... for
+  ranking scalar properties) does not work for a continuous XY curve chart -
+  the drill-down field list is a categorical axis feature, not available on
+  Breakdown Dimension, and X-axis has to stay the physical variable. Built
+  the closest working equivalent instead: a report **Parameter**
+  (`Curve Detail Level`, values `PELLET`/`EXTRUSION`/`SAMPLE`, default
+  `PELLET`) driving a drop-down control next to the existing filters, plus
+  a `Curve Breakdown Label` calculated field that returns `pellet_id`,
+  `extrusion_id`, or a `RH x% | Direction | #SampleNo` string depending on
+  the parameter, used as Breakdown Dimension with the Y metric aggregation
+  set to **Average**. Result: with no extra selection the chart shows one
+  mean curve per pellet; switching the new drop-down descends to
+  per-extrusion mean curves, then to individual-sample curves (RH/Direction/
+  Sample No. combination) - verified all three levels against real data.
+  Flagging in case Peter would prefer the literal double-click drill
+  interaction instead - technically not available for this chart type.
+- **Pipeline Health rebuilt as scorecards, not tables**: replaced the
+  `films_pipeline_summary` table with 5 individual bordered boxes (one per
+  pipeline: extrusion, friction, friction_raw, tensile, tensile_raw) in the
+  same black-border/white-background style as the "Total Tests" box on
+  other pages, each a Scorecard on `open_issue_count` filtered to that
+  pipeline (verified against BigQuery: 3/3/1/2/2 = 11 total, matches the
+  known count). Added the Notpla header/title for consistency with other
+  pages. Left `films_pipeline_open_issues` as a table below ("Open Issues
+  (detail)") since it's a variable-length list of individual failures with
+  free-text error messages, not fixed per-pipeline properties - flagging
+  this judgment call in case Peter wants it converted too. Not added:
+  `files_processed_ok` / `resolved_issue_count` as a second number per
+  card - the Scorecard "Optional metric" field didn't render visibly in
+  this Looker Studio version, and time didn't allow building a second
+  scorecard row per pipeline; flagging as a follow-up if wanted.
+- **Automation gotcha worth knowing if touching Looker Studio filters
+  again**: the free-text "value" box in Looker Studio's filter editor
+  looks like a plain text input but is actually an autocomplete combobox -
+  typing a value and clicking a suggestion with the mouse does NOT commit
+  it (Save enables, but the stored filter value is silently empty). The
+  value only commits into a proper chip if you select it via keyboard
+  (type, then `Down` arrow to highlight the match, then `Enter`). Cost
+  significant back-and-forth this session before finding this; several
+  scorecards briefly showed "No data" for exactly this reason.
+
 ## DONE (4 September 2026): Tensile/Friction Curves pages were broken, now fixed and Tensile split into 3 metrics
 
 Peter reported the Tensile Curves and Friction Curves pages built earlier

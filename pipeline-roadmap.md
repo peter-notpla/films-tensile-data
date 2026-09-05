@@ -1516,6 +1516,35 @@ charts, just X axis changed from `time_s` to `displacement_mm` /
 field). Young's Modulus reference table kept as-is, moved up to close the
 gap left by the deleted chart.
 
+### Tensile Curves polish + Pipeline Health rebuilt as scorecards (5 September 2026)
+
+Peter asked, then stepped away and asked for autonomous completion:
+1. Clear axis labels on both Tensile Curves charts.
+2. Smooth connected curves instead of scattered dots.
+3. Readable legend instead of raw `specimen_key` strings.
+4. Mean-curve drill-down: Pellet ID -> Extrusion ID -> RH/Direction/Sample
+   No., matching the Tensile page's existing drill-down pattern.
+5. Pipeline Health page restyled as individual boxes instead of tables.
+
+All done directly in Looker Studio via `claude-in-chrome` - see the matching
+"DONE (5 September 2026)" entry at the top of `CLAUDE.md` for full detail on
+each fix (root cause of the dots-as-scatter bug, the Parameter-driven
+drill-down design since native multi-field drill-down doesn't apply to a
+continuous XY chart, and the automation gotcha where Looker Studio's filter
+value box silently drops typed values unless committed via keyboard
+arrow+Enter). Verified against BigQuery: Pipeline Health's 5 new scorecards
+read 3/3/1/2/2 open issues for extrusion/friction/friction_raw/tensile/
+tensile_raw, summing to the known 11.
+
+**Not done, flagged for Peter**: a literal double-click drill interaction
+(used a dropdown parameter control instead - the real drill-down UI isn't
+available for curve charts); a second metric (files processed / resolved
+count) on each Pipeline Health box - the Scorecard "optional metric" field
+didn't render in this Looker Studio version; and whether the
+`films_pipeline_open_issues` detail table should also become boxes (kept as
+a table since it's a variable-length list of individual failures, not fixed
+per-pipeline properties).
+
 ---
 
 ## Phase 6: analysis layer
