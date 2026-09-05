@@ -5,6 +5,30 @@ of every session in this repository.
 
 ---
 
+## DONE (5 September 2026, third session): tensile data anomaly scan (case/garbage values)
+
+Peter noticed apparent duplicate "9" options in the Repeat Number filter
+and asked for a scan of `test_direction`, `sample_number`, `pellet_id`,
+`extrusion_id`, `relative_humidity_pct` for trailing spaces or other
+obviously-wrong values on `films_tensile_results_all_revisions`.
+
+Snapshotted the table first
+(`..._snapshot_20260905_pre_direction_repeat_cleanup`), then fixed two
+real anomalies: `test_direction = 'md'` (lowercase, 2 rows) -> `MD`, and
+`sample_number = '.'` (garbage, 2 rows) -> `''` (matching the existing
+blank convention rather than guessing a number). One row with
+`sample_number = '21-2'` is flagged but left alone - not clear whether it
+means 2, 21, or something else. `pellet_id`/`extrusion_id` had zero
+anomalies; `relative_humidity_pct` only real target values. Could not
+reproduce the "duplicate 9" Peter saw in the underlying data at all -
+likely a stale Looker filter-control cache from today's earlier
+`repeat_no` type change (INT64 -> STRING), not a real data problem.
+
+Full method and query results in `pipeline-roadmap.md`'s matching 5
+September entry.
+
+---
+
 ## DONE (5 September 2026, second session): fixed `Repeat No.` and the remaining dotted curves on Tensile Curves
 
 Peter reported the same-day polish above hadn't fully landed: `Repeat No.`

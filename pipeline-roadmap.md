@@ -1621,6 +1621,55 @@ Friction Curves was not touched - it plots `load_n` against `time_s`, not
 `displacement_mm`/`strain_pct`, so this specific binning issue doesn't
 apply there, and Peter didn't report a problem on that page.
 
+### Tensile data cleanup: case/garbage anomaly scan across key fields (5 September 2026)
+
+Peter noticed the Repeat Number filter offered what looked like duplicate
+options for "9" and asked for a scan of `test_direction`, `sample_number`,
+`pellet_id`, `extrusion_id`, `relative_humidity_pct` for trailing spaces or
+other obviously-wrong data on `films_tensile_results_all_revisions`.
+
+**Method**: for each field, checked for values differing from their own
+trimmed/uppercased form (whitespace or case duplicates), non-ASCII/
+multi-byte characters TRIM() wouldn't catch, internal double-spaces, and
+(for `sample_number`) anything not purely numeric or blank.
+
+**Found and fixed** (snapshot taken first:
+`films_tensile_results_all_revisions_snapshot_20260905_pre_direction_repeat_cleanup`):
+- `test_direction = 'md'` (lowercase) on 2 rows, both from the same
+  merged backfill source file - clearly meant `MD` (2,177 other rows all
+  read `MD`/`TD` uppercase; parser strips whitespace but never
+  uppercased). Updated to `MD`.
+- `sample_number = '.'` on 2 rows, same backfill file - not a valid
+  number and no way to recover the real one from this file. Normalized to
+  `''`, matching how the 26 genuinely-missing `sample_number` values from
+  that same file are already represented, rather than guessing a number.
+
+**Found, not fixed - flagged for Peter**: one row (`tensiletester-1|
+tensile|2026-05-14T09:39|760`, pellet `EV AB AL AM 260310 LI PF 1133`,
+extrusion `BA 260324 KM 1261`) has `sample_number = '21-2'`. Clearly wrong
+but not clearly correctable - could mean repeat 2, repeat 21, or
+something else entirely; left as-is rather than guess.
+
+**Checked, nothing wrong found**: `pellet_id`/`extrusion_id` have zero
+whitespace or case anomalies (already fully covered by the 1 September
+whitespace trim). `relative_humidity_pct` only has the expected real
+target values (35/50/46/75) plus genuine NULLs, no near-duplicates.
+`sample_number` has no hidden non-ASCII whitespace (checked byte-length
+vs char-length; none differ) - the only bad values were the two `.`
+rows above and the one `21-2` row.
+
+**On the specific "duplicate 9" Peter saw**: could not reproduce in the
+underlying data - `sample_number = '9'` is a single clean value (14 rows,
+consistent length/encoding) with no whitespace or type variant. Most
+likely a stale Looker Studio filter-control cache from the `repeat_no`
+field-type change (INT64 -> STRING) made earlier the same session, not a
+data problem - worth a hard refresh of the Repeat No. control if it
+recurs, otherwise flag with a screenshot next time.
+
+Both raw-table writes were 2-row UPDATEs (test_direction, sample_number);
+re-checked afterward that the same anomaly scan across all five fields
+returns only the flagged `21-2` row.
+
 ---
 
 ## Phase 6: analysis layer
