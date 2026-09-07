@@ -1914,6 +1914,56 @@ Net effect on `films_friction_curve_analysis`: 820 -> 818 specimens, 29 ->
 27 pellets (the two pseudo-pellets `x`/`callum` are gone; real coverage is
 unchanged).
 
+### Friction Curves: legend/drill-down parity with Tensile Curves (7 September 2026)
+
+Peter asked for Friction Curves' legend to stop showing raw `specimen_key`
+strings and instead match Tensile Curves' pattern - a `Curve Detail Level`
+drop-down (Pellet ID / Extrusion ID / mean curves, plus individual
+unaggregated curves), suggesting a fourth option (mean curve per test
+surface) if that was the easiest way to get there. It was: copied Tensile
+Curves' exact mechanism onto `films_friction_curve_analysis`.
+
+**Built, on the friction data source specifically (not shared with
+tensile's, since Looker Studio parameters/calculated fields are scoped per
+data source):**
+- Parameter `Curve Detail Level` (Text, list of values): `PELLET` -> "Pellet
+  ID (mean curve)", `EXTRUSION` -> "Extrusion ID (mean curve)", `SURFACE` ->
+  "Test Surface (mean curve)" (the new one), `SAMPLE` -> "Sample (RH /
+  Surface / No.)", default PELLET.
+- Calculated field `Curve Breakdown Label`: `CASE WHEN Curve Detail Level =
+  "EXTRUSION" THEN extrusion_id WHEN Curve Detail Level = "SURFACE" THEN
+  test_surface WHEN Curve Detail Level = "SAMPLE" THEN CONCAT("RH ",
+  CAST(relative_humidity_pct AS TEXT), "% | ", test_surface, " | #",
+  CAST(repeat_no AS TEXT)) ELSE pellet_id END` - same shape as tensile's,
+  substituting `test_surface` for tensile's `test_direction` since friction
+  has no direction field, and adding the SURFACE case tensile doesn't have.
+- New drop-down list control on the Friction Curves page, bound to the
+  parameter, same position/style as Tensile Curves'.
+- Chart's Breakdown dimension switched from `specimen_key` to `Curve
+  Breakdown Label`; Y metric (`load_n`) aggregation switched from Sum to
+  Average, so PELLET/EXTRUSION/SURFACE modes show genuine mean curves
+  (SAMPLE mode is unaffected by this, since averaging a group of one is a
+  no-op).
+
+**A scare during verification that turned out to be unrelated**: right
+after making both changes the chart went completely blank - no data, no
+legend, no error banner. Isolated by reverting one change at a time; it
+stayed blank even back at the *original* `specimen_key` + Sum config,
+which had been working moments earlier. Root cause was a stuck
+interaction/rendering state in the editor (most likely from manually
+switching the new drop-down's selection immediately after wiring it up,
+before the report had settled) - `Reset` in the toolbar cleared it
+immediately, and both the original and the new config then rendered
+correctly. Not a bug in the new field, parameter, or aggregation choice;
+flagging the symptom in case it recurs while editing this report.
+
+**Verified live, all four modes, via the actual dropdown control**: PELLET
+(5 pellets' mean curves, readable pellet-ID legend), EXTRUSION (readable
+extrusion-ID legend), SURFACE (exactly 3 clean mean curves, one per real
+test surface value), SAMPLE (individual specimens, labels like "RH 50% |
+Inside Film on Inside Film | #1"). Reset to the PELLET default before
+finishing.
+
 ---
 
 ## Phase 6: analysis layer

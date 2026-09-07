@@ -5,6 +5,21 @@ of every session in this repository.
 
 ---
 
+## DONE (7 September 2026): Friction Curves legend/drill-down parity with Tensile Curves
+
+Copied Tensile Curves' `Curve Detail Level` drop-down + `Curve Breakdown
+Label` calculated-field pattern onto `films_friction_curve_analysis`
+(built separately since Looker Studio parameters are scoped per data
+source), replacing the raw `specimen_key` legend. Four modes: Pellet ID /
+Extrusion ID / Test Surface (all mean curves, the last one new - friction
+has no direction field to mirror tensile's, so test surface was the
+natural addition) / Sample (individual curves). Chart's breakdown
+dimension and Y-metric aggregation (Sum -> Average) updated to match.
+Verified live via the actual control, all four modes. Full account,
+including a stuck-editor-state scare during verification that a `Reset`
+click cleared (nothing wrong with the new fields), in
+`pipeline-roadmap.md`'s matching entry.
+
 ## DONE (7 September 2026): friction pellet/extrusion ID anomaly scan
 
 Same kind of scan as the 5 September tensile one, applied to friction's
