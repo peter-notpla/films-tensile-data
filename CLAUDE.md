@@ -301,134 +301,117 @@ for whatever's currently filtered) - Peter can ask for it if wanted.
 
 ---
 
-## PRIORITY FOR NEXT SESSION (1 September 2026): scope has drifted, check against the original plan first
+## PROJECT STATUS vs ORIGINAL SCOPE (reassessed 7 September 2026)
 
-Before picking up new work, compare against `project-briefing.md` §8 (the
-agreed Phase 0-6 plan). Several sessions' worth of work has gone to things
-adjacent to that plan rather than the plan itself. Read this before adding
-anything else.
+`project-briefing.md` §8 is the agreed Phase 0-6 plan and §9 is the
+standing-items list. This section is a from-scratch comparison against
+both, re-checked live (dataset list, GCS, git log, GCP IAM) rather than
+carried forward from memory, since this file's prior version of this
+section was six days stale and had at least one now-wrong claim (the
+`ci.yml` push, see below).
 
-**Extra scope added, not in the original six phases:**
-- The pass-filter roll extrusion lookup (`pass-filter-extrusion-lookup.md`)
-  - a full separate workstream, not mentioned anywhere in the original
-  briefing or roadmap. Stalled at 18/36 rolls unresolved, blocked on Peter.
-- The curve-to-specimen analysis views (`films_tensile_curve_analysis`,
-  `films_friction_curve_analysis`) and the linking-quality work behind
-  them. Phase 5 as scoped stopped at "build the raw curve pipelines"
-  (checkpoint 1); everything downstream of that, including this, was
-  invented mid-session.
-- The `template_name` NULL bug and its fix (parser fix, live redeploy,
-  2,046-row re-normalization) - found only while chasing the curve-linking
-  work above. Not anticipated anywhere.
-- Alert delivery was rebuilt twice, neither time as originally decided.
-  The plan named Google Apps Script. What got built was Cloud Monitoring
-  alert policies first (found broken, the `crossSeriesReducer` bug), then
-  replaced with direct Gmail API sends. Apps Script was never used.
-- Tests and CI: flagged in the original briefing's "standing items not yet
-  scheduled" (not one of the six phases), started this session on its own
-  initiative rather than by request.
+**Phase 0 (stop active harm): complete.** Including the 1264/1279 roll
+code ambiguity for samples 1383-1392 - resolved (see `pipeline-roadmap.md`
+line 23), which this file previously and incorrectly carried as still
+open in `project-briefing.md`'s wording.
 
-**Remains from the original plan, still genuinely open:**
-- ~~**Phase 1.5, the Looker pipeline health page.**~~ Done 4 September
-  2026: `films_pipeline_open_issues` / `films_pipeline_summary` views in
-  `films_pipeline_ops`, `resolved_at` included, and the Looker page itself
-  built and live the same day - see `pipeline-roadmap.md`'s Phase 1.5
-  entry.
-- ~~**Phase 2.4, typed columns.**~~ Corrected 4 September 2026: friction's
-  `_num` siblings promoted to the live `films_friction_raw` view under
-  their original names. Needs a one-time "Refresh Fields" click in Looker
-  Studio on that data source - see the roadmap's Phase 2.4 entry.
-- **Phase 5, everything past checkpoint 1.** ~~Two new Looker pages
-  (tensile/friction curve browsers, filter + overlay).~~ Built and live 4
-  September 2026 - see the roadmap's "Two new Looker pages" entry.
-  ~~Curve-to-specimen link coverage.~~ Solved 7 September 2026 via two
-  additional non-time-based linking tiers - the GCS-time signal itself is
-  still destroyed for historical files exactly as found 4 September (that
-  specific method really can't be improved), but sample-number-based
-  matching doesn't need it. See the "DONE (7 September 2026)" entry at the
-  top of this file.
-- **Phase 6, in full.** `films_results_long` and its dedup rule (6.1, 6.2)
-  were never built. This is the actual "pick a Pellet ID, see every test
-  on that roll" deliverable - the curve views above are adjacent, not a
-  substitute. **Needs a decision: build it, formally drop it, or keep
-  letting adjacent work substitute for it.**
-- Standing items from the original briefing §9, still open: key rotation
-  (`mecmesin-uploader`'s Jan 2026 key, the appspot default account's
-  `roles/editor`), the four-dataset naming consolidation, and the 5
-  unmatched friction rows with ~5.0 static CoF flagged as a possible
-  calibration fault, never investigated further.
-- "Talk to Callum" about his `tensile_v21_*` pattern - open since the
-  first briefing.
-- The end-user manual, explicitly meant to be written last, once the
-  system stopped changing. Never started, and "last" keeps moving.
-- `README.md` is stale (still lists `films-friction-raw-processor` as "not
-  deployed"; it's been live since Phase 5 checkpoint 1).
+**Phase 1 (know what is happening): complete.** Manifest (1.1), row-errors
+(1.2), hourly first-sighting alert (1.3), Friday digest (1.4), Looker
+pipeline health page (1.5, done 4 September) - all built, deployed, and
+Peter-confirmed live at various points. One deviation from the original
+decision: 1.3/1.4 email delivery was specified as Google Apps Script:
+never built that way. Built as Cloud Monitoring alert policies first
+(found broken - the `crossSeriesReducer` bug), then rebuilt again as
+direct Gmail API sends from each pipeline's own code, which is what's
+live today. Works, but is a different mechanism than what was agreed,
+twice over.
 
-Fastest way to close the gap: land the blocked push below, then get a real
-decision on Phase 6 scope before starting anything else adjacent to it.
+**Phase 2 (v2 architecture): complete.** Shared parsing library, specimen
+key model, schema drift-check tooling, typed friction columns, revision
+handling, least-privilege service accounts - all built (Phase 2, 27
+August).
 
----
+**Phase 3 (validation): complete.** Whitespace trimming, ID format
+regexes (flag not reject), Excel detection, extrusion cross-reference,
+template naming convention - all built and live.
 
-## NEXT STEP (as at 1 September 2026): two blockers left, both need Peter's judgment
+**Phase 4 (migration): complete.** All three original pipelines
+(`films-tensile-csv-processor`, `films-friction-csv-processor`,
+`films-extrusion-csv-processor`) import their parser from `shared/`.
 
-Both raw curve pipelines (tensile, friction) are **live and fully
-backfilled** - Phase 5 checkpoint 1 is done. The Looker-facing analysis
-views Peter asked for exist and are verified
-(`films_tensile_curve_analysis`, `films_friction_curve_analysis` - see the
-"Curve analysis views" section below). Several standing items were also
-closed out same-session. Full blow-by-blow in `pipeline-roadmap.md`'s 1
-September entries.
+**Phase 5 (friction curves, extended to tensile): checkpoint 1 done, plus
+everything invented past it also now done.** The original scope was
+narrow - "build the raw curve pipelines" for both instruments, long-format
+one-row-per-timepoint. That shipped 1 September. Everything since is
+scope that got added mid-session, not re-litigated here since it's already
+built and working: the two new Looker curve-browser pages, their several
+rounds of rendering fixes (dots-not-curves, `Repeat No.`, legend
+readability), and - the largest of these - the curve-to-specimen linking
+quality work, which went from 30%/42% coverage to 92%/99.9% as of this
+week. None of this was in the original six phases. It is real, verified,
+delivered work, just adjacent to rather than part of the agreed plan.
 
-**Cleared once Peter approved directly** (the auto-mode classifier's block
-turned out to be inconsistent under retry, not a strict wall, for this
-class of command):
-- **Friction Gmail alerts fixed.** All three Gmail secrets granted to
-  `sa-friction-ingest`. Verified live with a genuine negative-path test
-  (malformed file → real `FRICTION_RAW_FAILURE_ALERT_SENT` with a Gmail
-  message ID, not just "no error").
-- **Extrusion table whitespace trimmed.** 338 rows updated; verified 0/338
-  now have leading/trailing whitespace on `pellet_id`/`extrusion_id`.
-  Snapshot kept (`raw_films_extrusion_snapshot_20260901_pre_whitespace_trim`).
-- **`template_name` backfilled and normalized** on
-  `films_tensile_results_all_revisions` and `films_friction_raw_all_revisions`
-  (snapshotted before each write). Friction fully resolved; tensile
-  resolved 3,459/3,510 - 51 rows across 23 files can't be recovered because
-  those source CSVs no longer exist anywhere in GCS (left `NULL`, not
-  guessed). Also fixed the parser gap this surfaced: Excel's trailing-comma
-  row-1 padding was leaking into `template_name`
-  (`shared/excel_detection.clean_template_name()` now handles it, both
-  `shared/tensile_parser.py` and `shared/friction_parser.py` use it).
-  Deployed to both `films-tensile-csv-processor` and
-  `films-friction-csv-processor`, verified live with a real synthetic file
-  through each GCS watch folder, then re-normalized the 2,022 + 24 already-
-  affected historical rows. Full account in `pipeline-roadmap.md`'s 1
-  September `template_name` entries.
+**Phase 6 (analysis layer): not started. This is the largest genuine gap
+against the original plan.** `films_results_long` (one row per test type,
+sample, metric name, metric value) and its dedup rule (6.1, 6.2) do not
+exist - checked directly, no such view or table anywhere in any dataset.
+This was the actual "pick a Pellet ID, see every test on that roll"
+deliverable from the original briefing. The curve-analysis views and
+Looker pages built under the Phase 5 scope creep are adjacent to this
+goal (they let you browse curves by pellet/extrusion) but do not
+substitute for it (they don't cover scalar test results at all, and
+don't dedupe/aggregate across test types). **Needs a decision: build it,
+drop it formally, or keep treating the adjacent work as good enough.**
 
-**Still open:**
-1. **One commit is unpushed: `b9c03cb` adds `.github/workflows/ci.yml`**,
-   and GitHub rejects it from a token without `workflow` scope - this is a
-   GitHub permission restriction, not an auto-mode block, so retrying
-   won't help. Either get a token with `workflow` scope, push it
-   yourself, or add the file by hand via the GitHub web UI (content is
-   already in the local commit / see `pipeline-roadmap.md`'s "Tests and
-   CI" entry).
-2. ~~**Curve-to-specimen link coverage is thin.**~~ Solved 7 September
-   2026: tensile 865 specimens / 34 pellets, friction 820 specimens / 29
-   pellets - see the "DONE (7 September 2026)" entry at the top of this
-   file and the "Curve analysis views" section below.
+**Standing items from §9, re-checked live:**
+- Key rotation: `mecmesin-uploader`'s key is dated 2026-04-01 (not the
+  January 2026 date in the original briefing - either it was already
+  rotated once without being logged, or the original date was
+  approximate; not confirmed either way). The appspot default account's
+  `roles/editor` was not re-checked this pass. Still an open standing
+  item regardless.
+- Dataset naming consolidation: still not done. Live dataset list today:
+  `Rigid_Tensile`, `Rigid_Tensile_euw2`, `film_tensile_data`,
+  `films_pipeline_ops`, `films_tensile_london`, `machine_collin_e25e`,
+  `machine_data`, `machine_leistritz_1`, `tensiletester_1`, plus
+  `engel_partdata`/`injectionmoulder_data` (Callum's, unrelated to this
+  project) - no more consistent than the original briefing described.
+- The 5 unmatched friction rows with ~5.0 static CoF: still never
+  investigated. Confirmed via search, no entry anywhere in
+  `pipeline-roadmap.md`.
+- "Talk to Callum" about `tensile_v21_*`: still open, still a human
+  conversation not something to automate.
+- End-user manual: still never started. No such file exists in the repo.
+- `README.md`: still stale, re-checked directly - line 16 still lists
+  `films-friction-raw-processor` as "not deployed"; it has been live
+  since Phase 5 checkpoint 1 (1 September).
+- **One correction to this file's own prior claim**: the previous version
+  of this section said commit `b9c03cb` (`.github/workflows/ci.yml`) was
+  still unpushed due to a GitHub token `workflow`-scope restriction. Not
+  true any more - checked directly, that commit and file are on
+  `origin/main`. Whatever push carried it through (likely the 5 September
+  bulk push of six long-unpushed commits) resolved this without it being
+  logged as its own step. Flagging the pattern, not just the fact: this
+  file can go stale on specific claims even while its broad shape stays
+  right, so specific claims here should be re-verified before being
+  repeated in a future session, not just trusted.
 
-**Also flagged, not attempted (needs Peter's judgment, not a blocker to
-clear quickly)**: key rotation (`mecmesin-uploader`'s Jan 2026 key, the
-appspot default account's `roles/editor`), and the dataset-naming
-consolidation (`film_tensile_data`/`tensiletester_1`/`Rigid_Tensile`/
-`Rigid_Tensile_euw2`) - both need Peter to scope and coordinate, not
-something to execute unilaterally. "Talk to Callum" about revision-handling
-value semantics is a human conversation, not automatable.
+**New scope drift since the 1 September version of this assessment**,
+none of it in the original six phases: two rounds of pellet/extrusion ID
+anomaly scans (tensile 5 September, friction 7 September), the friction
+template-naming bug fix, the `sample_number_map` reconciliation table and
+its build script, and the Friction Curves `Curve Detail Level` parity
+work. All delivered and verified, all adjacent to the plan rather than
+part of it, same pattern as the curve-linking work above. The pass-filter
+roll extrusion lookup (see the "In progress" section below) is the same
+kind of drift from an earlier session, still stalled at 18/36 rolls
+blocked on Peter, not touched this pass.
 
-Standing habit, worth restating since it has now bitten this project three
-times (28 August, 30 August, 1 September): **log each step in
-`pipeline-roadmap.md` as it happens, and commit before ending a session,
-even mid-task.**
+Standing habit, worth restating since it has now bitten this project on
+at least four separate occasions (28 August, 30 August, 1 September, and
+the `find_specimen_link_by_sample` function found uncommitted on 7
+September): **log each step in `pipeline-roadmap.md` as it happens, and
+commit before ending a session, even mid-task.**
 
 ---
 
