@@ -1806,6 +1806,47 @@ Looker-facing coverage on `films_tensile_curve_analysis` /
 Deployed code is committed, this file and CLAUDE.md updated same-session -
 not repeating the "logged nowhere" pattern this entry itself documents.
 
+### Friction Curves page was broken by its own success: found and fixed live (7 September 2026)
+
+Peter asked to confirm the Looker Studio pages were actually correctly
+linked to the underlying data after the coverage work above, "launch
+claude-in-chrome if necessary." They were - and doing so surfaced a real,
+separate bug the coverage jump itself exposed.
+
+**Tensile Curves**: checked in the browser, filtered to a single pellet,
+drilled down to individual Sample level - real, correctly-shaped curves,
+data source correctly bound to `films_tensile_curve_analysis`, dimension
+and breakdown fields still the fixed/renamed ones from 5 September. No
+issue.
+
+**Friction Curves**: broken. With no filter, the chart showed nothing at
+all; filtered to a single pellet, it showed scattered dots with raw
+`specimen_key` legend strings, not connected curves - the exact "dots not
+curves" bug fixed on Tensile Curves 5 September, never applied here.
+Confirmed in the chart's own Setup panel that the data source and fields
+were otherwise correct (`films_friction_curve_analysis`, `specimen_key`
+breakdown, `load_n` metric) - this was a chart-rendering bug, not a bad
+data link. Root cause, same as tensile's original one: `time_s` is a
+near-unique float per point, so the shared category axis has almost no
+overlap between the now-hundreds of specimens, and Looker Studio draws
+isolated markers instead of connected segments. Invisible before today
+because friction had only 2 real linked specimens; the coverage fix above
+is what exposed it.
+
+**Fixed the same way tensile was**: added a calculated field
+`time_s_binned = ROUND(time_s/0.5,0)*0.5` on the `films_friction_curve_analysis`
+data source (0.5s bins, chosen from real data - every curve spans roughly
+0-34s at ~200 downsampled points, so 0.5s bins give strong overlap across
+specimens), and switched the chart's X-axis dimension to it. Verified live:
+curves now render as genuine connected oscillating stick-slip shapes,
+both for a single filtered pellet and with no filter applied (first 20
+series, per the existing cap).
+
+**Not fixed, flagged rather than done unprompted**: the legend still shows
+raw `specimen_key` strings on Friction Curves, unlike Tensile Curves'
+`Curve Breakdown Label` field (5 September) - a readability gap, not a
+correctness one, left as-is since it wasn't the reported problem.
+
 ---
 
 ## Phase 6: analysis layer

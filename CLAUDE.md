@@ -47,6 +47,18 @@ immediately going forward. Full account in `pipeline-roadmap.md`'s matching
   offline check had (a numpy.int64 passed into a BigQuery INT64 parameter,
   only reachable when a file falls through to the third tier). Fixed,
   redeployed, re-verified clean before calling it done.
+- **Checked in the browser afterward that Looker Studio was actually
+  showing the new coverage, and found a real second bug**: Friction Curves
+  rendered as scattered dots (raw `specimen_key` legend too), the same
+  "dots not curves" categorical-axis bug fixed on Tensile Curves 5
+  September, never applied to Friction Curves because it only had 2
+  specimens then to expose it. Fixed the same way: added a
+  `time_s_binned = ROUND(time_s/0.5,0)*0.5` calculated field on
+  `films_friction_curve_analysis` and pointed the chart's X-axis at it.
+  Verified live - genuine connected oscillating stick-slip curves now
+  render, filtered and unfiltered. Tensile Curves' own data source/field
+  bindings were checked too and were already correct. Full account in
+  `pipeline-roadmap.md`'s matching entry.
 
 ---
 
