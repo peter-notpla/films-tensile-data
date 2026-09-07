@@ -1847,6 +1847,73 @@ raw `specimen_key` strings on Friction Curves, unlike Tensile Curves'
 `Curve Breakdown Label` field (5 September) - a readability gap, not a
 correctness one, left as-is since it wasn't the reported problem.
 
+### Friction pellet/extrusion ID anomaly scan (7 September 2026)
+
+Peter asked for the same kind of manual-entry typo scan already done for
+tensile (5 September), applied to friction: `pellet_id`/`extrusion_id`
+(`pellet_id_prompt_for_value_before_test` /
+`extrusion_code_prompt_for_value_before_test`), checking trailing spaces,
+case, and "lone tests" (a rare value that's really a fat-fingered near-
+duplicate of a common one).
+
+**Method**: reused `shared/id_validation.py`'s exact regexes directly
+against the live table rather than re-deriving new ones. For the "lone
+test" check, pulled every distinct pellet_id/extrusion_id with its row
+count and ran full pairwise Levenshtein distance (<=2) across all of them,
+not just a sample - every single near-match found was between two values
+with comparable counts (tens of rows each), consistent with genuinely
+different, sequentially-numbered rolls/bags (see CLAUDE.md's ID field
+table), not a rare value near a common one. **No fat-finger typos found
+beyond whitespace.** `test_surfaces_prompt_for_value_before_test` (the
+other manually-entered categorical field) has exactly 3 values, no
+anomalies.
+
+**Real findings, both fixed, snapshotted first**
+(`films_friction_raw_all_revisions_presnap_20260907_typoscan`,
+`films_friction_curve_points_presnap_20260907_typoscan`):
+
+1. **Whitespace fragmentation** - 5 rows had a leading/trailing space on
+   `pellet_id` or `extrusion_id` that, invisibly, split one real
+   pellet/extrusion into two separate values everywhere they're grouped
+   (Looker filters, curve_analysis views, etc.):
+   - `EV AB AI AM 251117 HZ PF 1052 ` (trailing space, 23 rows) + the
+     clean version (85 rows) -> 108.
+   - `EV AB AF AM 250929 HZ PF 0929 ` (trailing space, 9 rows) + clean (33
+     rows) -> 42.
+   - ` GN AB AE AM 260310 LI PF 1129` (leading space, 1 row) + clean (81
+     rows) -> 82.
+   - ` BA 251216 JH 1138` (leading space, 5 rows) + clean (4 rows) -> 9.
+   - ` AO 260506 KS 1326` (leading space, 1 row) + clean (14 rows) -> 15.
+
+   Fixed with a single blanket `UPDATE ... SET pellet_id = TRIM(pellet_id),
+   extrusion_id = TRIM(extrusion_id) WHERE ... != TRIM(...)` (42 rows
+   affected in total across both columns). Verified: 0 whitespace and 0
+   regex-invalid pellet/extrusion values remain on any of the 983 current
+   rows, and each affected value's count now matches the sum predicted
+   above exactly.
+
+2. **Genuine junk, not a typo** - two rows (`pellet_id`/`extrusion_id` =
+   `"x"` and `"callum"`, `notes` = `"hi"` / `"Callum"`, repeat number `"x"`
+   / `"a u m"`) sandwiched inside an otherwise entirely legitimate ~50-row
+   summary file (`Results-FrictionTest-Films(V1)-20260413-131417.csv`, 27
+   January 2026, 15:47 and 15:49) - an obvious quick calibration/practice
+   run by a colleague between real tests, same pattern as the
+   `FILMS-CYCLICALLOADING` removal on 4 September. **Unlike that case, the
+   source file itself is not junk** (48 other rows in it are real
+   production data) - checked the full file content before doing anything,
+   not assumed. Peter confirmed removal. Deleted only the 2 specific rows
+   from `films_friction_raw_all_revisions` (specimen_keys `...1000069`,
+   `...1000070`), the 400 linked rows from `films_friction_curve_points`
+   (200 each, both had a raw curve file that successfully linked), and the
+   2 GCS raw curve files
+   (`raw-FrictionTest-Films(V1)-sample-1000069/1000070.csv`) - the summary
+   source CSV itself was left untouched. Verified 0 remaining references
+   anywhere afterward.
+
+Net effect on `films_friction_curve_analysis`: 820 -> 818 specimens, 29 ->
+27 pellets (the two pseudo-pellets `x`/`callum` are gone; real coverage is
+unchanged).
+
 ---
 
 ## Phase 6: analysis layer

@@ -5,6 +5,23 @@ of every session in this repository.
 
 ---
 
+## DONE (7 September 2026): friction pellet/extrusion ID anomaly scan
+
+Same kind of scan as the 5 September tensile one, applied to friction's
+manually-entered `pellet_id`/`extrusion_id`. Full pairwise typo check
+(Levenshtein <=2 across every distinct value, not a sample) found no real
+fat-finger typos - every near-match is two genuinely different,
+sequentially-numbered rolls/bags with comparable test counts. Real finds,
+both fixed (snapshotted first): 5 rows with an invisible leading/trailing
+space that had silently fragmented 3 real pellets and 2 real extrusions
+into duplicate-looking entries (trimmed, e.g. one pellet went from
+looking like 85+23 back to a single 108); and 2 genuine junk rows (`"x"`/
+`"callum"`, notes "hi"/"Callum") sitting inside an otherwise-legitimate
+~50-row summary file from 27 January 2026 - removed (BigQuery rows +
+linked curve_points rows + the 2 GCS raw curve files), source summary CSV
+left untouched since the rest of it is real data. Full account in
+`pipeline-roadmap.md`'s matching entry.
+
 ## DONE (7 September 2026): curve-linking coverage, 30%/42% -> 92%/99.9%
 
 Peter asked to solve curve-linking coverage properly: link as many existing
