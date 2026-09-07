@@ -1672,6 +1672,142 @@ returns only the flagged `21-2` row.
 
 ---
 
+### Curve-linking coverage: from 30%/42% to 92%/99.9%, plus a third linking
+### tier and a fixed friction template-naming bug (7 September 2026)
+
+Peter asked to solve curve-linking coverage properly: link as many existing
+raw curve files as possible, permanently, and make sure new files link
+immediately going forward. Starting point (1 September's "Curve analysis
+views" entry): 372/1,242 tensile files linked (108 specimens/17 pellets),
+387/928 friction files linked (2 specimens/2 pellets before 4 September's
+undocumented sample-number fallback, corrected below).
+
+**Before building anything**: stress-tested a "key document" Peter had from
+an earlier work effort proposing a `sample_number_map` reconciliation table
+(join each instrument's archived pre-renumbering export back to the current
+1,000,000-series rows on measured values, to translate a raw curve
+filename's sample number into the current one). Findings from that review:
+- The tensile archive file and range it describes (1,571 rows, 1,000,000 to
+  1,001,570) check out exactly.
+- Its central assumption - that raw filenames carry the pre-renumbering
+  number - only holds for tensile. 537 of friction's 928 raw filenames
+  already carry post-renumbering (>=1,000,000) numbers directly.
+- `shared/curve_linking.py` already had an uncommitted, undeployed-to-docs
+  `find_specimen_link_by_sample` function (friction-only, working-tree-only
+  since 4 September, never logged here) doing a related but different job:
+  direct (template, sample) matching with no reconciliation table at all.
+
+**Found while investigating, real and unrelated to the reconciliation work**:
+`shared/curve_linking.py`'s `find_specimen_link_by_sample` was live in
+production (`films-friction-raw-processor-00004-zuk`) achieving 387/928
+friction links, but was never committed to git and never mentioned in this
+file or CLAUDE.md - the third occurrence of this project's "session work
+done but not logged" pattern (28 Aug, 30 Aug, 1 Sep, now 7 Sep). It has now
+been committed, documented, and extended to tensile (which never used it at
+all before today).
+
+**What was actually built, three tiers in `shared/curve_linking.py`, used
+identically by both `films-tensile-raw-processor`, `films-friction-raw-
+processor`, and `scripts/backfill_curve_points.py`:**
+
+1. `find_specimen_link` - unchanged. GCS-creation-time proximity + template
+   match. Only useful for live-triggered files (historical timestamps are
+   destroyed by `move_blob`, per 4 September's entry above).
+2. `find_specimen_link_by_sample` - the found-uncommitted function, now
+   finished and extended: fixed a live bug where its `TRIM(sample)` call
+   failed outright against tensile (`sample` is INT64 there, STRING on
+   friction) - `CAST(sample AS STRING)` fixes both. Also added
+   `TEMPLATE_ALIASES`: friction has two live templates,
+   `FrictionTest-Films(V1)` and `FrictionTest-FilmsOld(V1)` (the
+   CLAUDE.md-documented "copy a template, rename the old one" pattern), and
+   every historical raw curve filename for the old template was still
+   named "Films", never updated to "FilmsOld". Confirmed safe to bridge
+   before shipping: the two templates' current sample-number ranges are
+   completely disjoint (FilmsOld exclusively >=1,000,000, Films exclusively
+   below - zero shared values), so trying both names can never cause the
+   same-sample-different-template collision the template requirement
+   exists to prevent.
+3. `find_specimen_link_by_mapped_sample` - new. Reads the new
+   `films_tensile_london.sample_number_map` table
+   (`scripts/build_sample_number_map.py`) and retries tier 2 with the
+   translated sample number.
+
+**`sample_number_map`, built by joining each instrument's archived
+pre-renumbering export to the live table on measured values** (tensile:
+timestamp-to-minute + `max_stress_mpa`/`youngs_modulus_mpa` rounded to 3dp;
+friction: pellet/extrusion/test-surface/repeat-number plus five rounded
+force/CoF measurements, since 14 of friction's 15 archive files carry no
+timestamp column at all - checked directly, not assumed). Real result:
+- Friction: 497 of 522 distinct original sample numbers resolved cleanly,
+  0 ambiguous, 25 unmatched.
+- Tensile: only 141 of 711 resolved cleanly. **570 of 711 are ambiguous -
+  the same original sample number maps to more than one current specimen,
+  and this is not rare or a backfill artefact alone**: confirmed directly
+  that the archive file itself contains the same original_sample value
+  attached to genuinely different physical tests (different timestamps,
+  different measurements) - e.g. original sample 437 appears three times,
+  two of which look like a true duplicate-row backfill artefact and one of
+  which is a completely different test that reused the label after a
+  template reset. This is CLAUDE.md's "sample numbers are not stable
+  identifiers" warning, now confirmed inside the reconciliation source
+  itself, not just the live tables. Peter's call, asked directly: these
+  stay unlinked and flagged (`is_ambiguous = TRUE`), never guessed at, even
+  though that limits this tier's real contribution.
+
+**Net effect on the actual contribution of each tier** (mapped_sample
+contributed far less than expected; the two bug fixes above did almost all
+of the work):
+
+| | before | tier 2 (direct/alias) | tier 3 (mapped) | after | coverage |
+|---|---|---|---|---|---|
+| tensile | 372/1,242 | +766 | +0 | 1,138/1,242 | 30% -> 92% |
+| friction | 387/928 | +536 | +4 | 927/928 | 42% -> 99.9% |
+
+Remaining gaps are genuine, not a shortcoming of the method: tensile's 104
+unlinked files either have no matching sample anywhere in the table (89) or
+match only under a `NULL` template_name (15, unsafe to use since template is
+what disambiguates); friction's 1 remaining file is a pre-existing,
+unrelated leftover from a different session's own verification test (1
+September, `raw-CLAUDEVERIFY-Films-sample-999999996.csv`, `linked_specimen_key`
+correctly NULL), not touched.
+
+Looker-facing coverage on `films_tensile_curve_analysis` /
+`films_friction_curve_analysis` (see "Curve analysis views", 1 September):
+**865 specimens / 34 pellets (tensile)**, **820 specimens / 29 pellets
+(friction)** - up from 108/17 and 2/2.
+
+**Verification, full discipline applied:**
+- Replayed `shared/curve_parser.py` against all 1,242 real tensile files
+  (1242/1242 succeeded, min/max preserved) before deploying.
+- Extended `shared/verify_curve_parser.py` with real-data checks for all
+  three tiers, including the friction alias case and both a clean and an
+  ambiguous `sample_number_map` lookup - all passed before deploy.
+- Snapshotted both curve_points tables before writing
+  (`films_tensile_curve_points_presnap_20260907_relink`,
+  `films_friction_curve_points_presnap_20260907_relink`), then applied the
+  backfill re-link via a single `MERGE` per table (163,600 / 108,000 rows
+  affected - point-level rows for each newly-linked file, not new files).
+- Deployed both raw processors (`films-tensile-raw-processor-00008-vod`,
+  `films-friction-raw-processor-00005-qip` initially), confirmed traffic on
+  the new revision, then ran a live end-to-end test through both real GCS
+  watch folders using real (template, sample) pairs - caught a genuine bug
+  this way that no offline check had surfaced: `find_specimen_link_by_mapped_sample`
+  passed a numpy.int64 (from the pandas-parsed `raw_sample_number` column)
+  into a BigQuery `INT64` query parameter, which only fails when a file
+  falls through tiers 1 and 2 to reach tier 3 - both negative-control test
+  files hit exactly that path and failed with "Object of type int64 is not
+  JSON serializable". Fixed (`int(raw_sample_number)`), redeployed
+  (`-00009-zen`, `-00006-cug`), re-ran the negative control, confirmed clean
+  success with `linked_specimen_key = NULL`. All test rows and GCS files
+  deleted afterward (verified real historical rows for the two real samples
+  used in testing were untouched: still exactly 200 rows each, original
+  `processed_at` timestamps intact).
+
+Deployed code is committed, this file and CLAUDE.md updated same-session -
+not repeating the "logged nowhere" pattern this entry itself documents.
+
+---
+
 ## Phase 6: analysis layer
 
 ### 6.1 The `films_results_long` view

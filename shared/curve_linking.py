@@ -36,11 +36,61 @@ the original creation event exists either (checked: no matching
 `storage.objects.create` entries for real filenames). The original signal
 this function needs is gone for any file already moved, so widening the
 window cannot recover historical coverage - only going-forward accuracy.
+
+**find_specimen_link_by_sample - a deliberate lower-confidence fallback,
+added 4 September 2026, Peter-approved.** Friction's historical backfill
+coverage via the above was 2 linked specimens out of 928 curve files - the
+GCS-time signal is gone for nearly all of it, same reasoning as above.
+Matching by (template_name, sample number) alone instead recovers 387 of
+928 files (13 pellets) on real data, checked before shipping. This is
+exactly the join CLAUDE.md's "Sample numbers are not stable identifiers"
+section warns against trusting alone - VectorPro resets the counter
+whenever a template is copied, so the same template_name reused across
+two separate physical sessions could match a curve file to the wrong
+specimen. Mitigated, not eliminated: only returns a match when the
+(template_name, sample) pair resolves to exactly one specimen_key among
+current rows - an ambiguous pair (more than one specimen shares it)
+returns None rather than guessing, same fail-open behavior as the
+time-based function. Every caller must write the returned method
+('time' vs 'sample_number') to a `link_method` column so a lower-
+confidence link stays visually distinguishable downstream - never treat
+its result as equivalent to a time-based match.
+
+**find_specimen_link_by_mapped_sample - third tier, added 7 September
+2026, Peter-approved.** Tried after find_specimen_link_by_sample returns
+nothing: translates the raw filename's sample number through the
+permanent `films_tensile_london.sample_number_map` table before matching,
+recovering files whose bare sample number was itself renumbered away by
+the backfill. See that function's docstring and
+scripts/build_sample_number_map.py for how the map is built and why
+ambiguous mappings (confirmed common, not rare, for tensile) are never
+guessed at. Callers should write link_method='mapped_sample' when this
+tier is what produced the link.
 """
 
 from google.cloud import bigquery
 
 DEFAULT_WINDOW_MINUTES = 30
+DEFAULT_MAP_TABLE = "notpla-machine-data.films_tensile_london.sample_number_map"
+
+# Confirmed 7 September 2026, while investigating why direct sample matching
+# recovered 0 of 541 remaining friction files: the raw curve filename's
+# parsed template ("FrictionTest-Films(V1)", from the export-time filename
+# convention) doesn't match every current row it should. A live template
+# rename (Films -> FilmsOld, the CLAUDE.md-documented pattern of copying a
+# template and giving the copy a distinct name) left every FilmsOld summary
+# row's template_name updated to the new name, while its historical raw
+# curve files were never renamed to match. Safe to bridge explicitly:
+# checked directly that the two templates' current sample-number ranges are
+# fully disjoint (FilmsOld is exclusively >= 1,000,000, Films exclusively
+# below - zero shared sample values), so trying both names can never
+# introduce the same-sample-different-template collision the template
+# requirement exists to prevent. Not a general template-matching relaxation -
+# only this one verified, named pair.
+TEMPLATE_ALIASES = {
+    "frictiontest-films(v1)": ["FrictionTest-FilmsOld(V1)"],
+    "frictiontest-filmsold(v1)": ["FrictionTest-Films(V1)"],
+}
 
 
 def find_specimen_link(bq_client, table_id, gcs_created_at, template_name, window_minutes=DEFAULT_WINDOW_MINUTES):
@@ -82,3 +132,90 @@ def find_specimen_link(bq_client, table_id, gcs_created_at, template_name, windo
     if not rows:
         return None, None
     return rows[0]["specimen_key"], rows[0]["delta_seconds"]
+
+
+def find_specimen_link_by_sample(bq_client, table_id, template_name, raw_sample_number):
+    """Fallback for when find_specimen_link finds nothing - see this
+    module's docstring for why this exists and its confidence caveat.
+
+    Only matches against row_state = 'current' rows, same as
+    find_specimen_link. Returns specimen_key, or None if the
+    (template_name, sample) pair matches zero or more than one specimen.
+
+    `sample` is STRING on films_friction_raw_all_revisions but INT64 on
+    films_tensile_results_all_revisions (confirmed 7 September 2026, this
+    function's first real run against tensile) - CAST to STRING so the same
+    query works against either table.
+
+    Tries template_name and, if it has one, its known alias (see
+    TEMPLATE_ALIASES) together in a single query, so a genuine collision
+    across the two names would still be caught by the exactly-one-match
+    check below rather than silently preferring one name over the other.
+    """
+    candidates = [template_name] + TEMPLATE_ALIASES.get(template_name.strip().lower(), [])
+    query = f"""
+        SELECT specimen_key
+        FROM `{table_id}`
+        WHERE row_state = 'current'
+          AND LOWER(TRIM(template_name)) IN UNNEST(@template_names)
+          AND TRIM(CAST(sample AS STRING)) = TRIM(@sample)
+        GROUP BY specimen_key
+    """
+    job_config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ArrayQueryParameter(
+            "template_names", "STRING", [c.strip().lower() for c in candidates]
+        ),
+        bigquery.ScalarQueryParameter("sample", "STRING", str(raw_sample_number)),
+    ])
+    rows = list(bq_client.query(query, job_config=job_config).result())
+    if len(rows) != 1:
+        return None
+    return rows[0]["specimen_key"]
+
+
+def find_specimen_link_by_mapped_sample(bq_client, table_id, map_table_id, test_type,
+                                         template_name, raw_sample_number):
+    """Second fallback, tried after find_specimen_link_by_sample returns
+    nothing - handles a raw curve file whose bare filename sample number was
+    itself renumbered away by the early-2026 manual Excel backfill (CLAUDE.md's
+    "Sample numbers are not stable identifiers"), via the permanent
+    `sample_number_map` table (scripts/build_sample_number_map.py, built by
+    joining each instrument's pre-renumbering archive export back to the live
+    table on measured values).
+
+    Peter-approved policy (7 September 2026): a raw_sample_number with more
+    than one candidate current_sample - confirmed on real tensile data to be
+    common (570 of 711 archived sample numbers are reused across genuinely
+    different physical tests from different template generations, not a rare
+    edge case) - is never guessed at. sample_number_map itself already marks
+    these `is_ambiguous = TRUE` at build time; this function only ever reads
+    the unambiguous rows, so an ambiguous original_sample simply yields no
+    candidate here and the file stays unlinked, same fail-open behavior as
+    the other two tiers.
+
+    Returns specimen_key, or None if no unambiguous mapping exists, or if the
+    mapped (template_name, current_sample) pair itself matches zero or more
+    than one specimen (same ambiguity check as find_specimen_link_by_sample).
+    """
+    query = f"""
+        SELECT current_sample
+        FROM `{map_table_id}`
+        WHERE test_type = @test_type
+          AND original_sample = @original_sample
+          AND is_ambiguous = FALSE
+    """
+    job_config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("test_type", "STRING", test_type),
+        # int(...): raw_sample_number is a numpy.int64 on the live ingest
+        # path (from a pandas column via curve_parser.py), which the
+        # BigQuery client's request serialization cannot JSON-encode -
+        # confirmed live 7 September 2026 (both negative-control test files
+        # failed with "Object of type int64 is not JSON serializable" the
+        # moment they fell through to this tier). find_specimen_link_by_sample
+        # never hit this because it stringifies its own sample parameter.
+        bigquery.ScalarQueryParameter("original_sample", "INT64", int(raw_sample_number)),
+    ])
+    rows = list(bq_client.query(query, job_config=job_config).result())
+    if len(rows) != 1:
+        return None
+    return find_specimen_link_by_sample(bq_client, table_id, template_name, rows[0]["current_sample"])

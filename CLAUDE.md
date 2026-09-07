@@ -5,6 +5,51 @@ of every session in this repository.
 
 ---
 
+## DONE (7 September 2026): curve-linking coverage, 30%/42% -> 92%/99.9%
+
+Peter asked to solve curve-linking coverage properly: link as many existing
+raw curve files as possible, permanently, and make new files link
+immediately going forward. Full account in `pipeline-roadmap.md`'s matching
+7 September Phase 5 entry; summary here.
+
+- Added a third linking tier to `shared/curve_linking.py`,
+  `find_specimen_link_by_mapped_sample`, backed by a new permanent
+  `films_tensile_london.sample_number_map` table
+  (`scripts/build_sample_number_map.py`) built by joining each instrument's
+  archived pre-renumbering export to the live table on measured values, not
+  arithmetic. Real result: friction resolved cleanly (497/522), tensile
+  mostly didn't (570/711 ambiguous - confirmed the same original sample
+  number attaches to genuinely different physical tests even within the
+  archive file itself, not just a rare edge case). Ambiguous mappings are
+  written `is_ambiguous = TRUE` and never linked, Peter's explicit call.
+- Found and finished a second tier that already existed uncommitted and
+  undocumented in the working tree, live in production for friction only
+  since 4 September (`find_specimen_link_by_sample`) - the third instance of
+  this project's "session work done but never logged" pattern. Fixed a real
+  bug (`TRIM(sample)` failed outright on tensile's INT64 `sample` column)
+  and extended it to tensile, which had never used it.
+- Found and fixed a friction template-naming bug while investigating why
+  direct sample matching recovered nothing: raw curve filenames for the
+  renamed `FrictionTest-FilmsOld(V1)` template were never updated from
+  "Films", the pre-rename name. Confirmed safe to bridge (the two
+  templates' sample-number ranges are completely disjoint) before adding
+  `TEMPLATE_ALIASES`.
+- These two fixes, not the reconciliation table, did nearly all of the real
+  work: tensile 372 -> 1,138 of 1,242 linked (92%), friction 387 -> 927 of
+  928 (99.9%). Looker-facing coverage on the curve_analysis views: tensile
+  108 -> 865 specimens (17 -> 34 pellets), friction 2 -> 820 specimens (2
+  -> 29 pellets).
+- Full verification discipline applied: replayed the parser against all
+  1,242 real tensile files, extended `shared/verify_curve_parser.py` with
+  real-data checks for all three tiers, snapshotted both curve_points
+  tables before a single `MERGE` backfill each, then a live end-to-end test
+  through both real GCS watch folders - which caught a genuine bug no
+  offline check had (a numpy.int64 passed into a BigQuery INT64 parameter,
+  only reachable when a file falls through to the third tier). Fixed,
+  redeployed, re-verified clean before calling it done.
+
+---
+
 ## DONE (5 September 2026, third session): tensile data anomaly scan (case/garbage values)
 
 Peter noticed apparent duplicate "9" options in the Repeat Number filter
@@ -249,15 +294,15 @@ anything else.
   `_num` siblings promoted to the live `films_friction_raw` view under
   their original names. Needs a one-time "Refresh Fields" click in Looker
   Studio on that data source - see the roadmap's Phase 2.4 entry.
-- **Phase 5, everything past checkpoint 1.** Curve-to-specimen linking now
-  additionally requires a template match (4 September), a real precision
-  win for every curve ingested from here on, but confirmed unable to
-  improve historical backfill coverage - the original per-file GCS
-  timestamps were destroyed by the move-to-processed step and can't be
-  recovered. ~~Two new Looker pages (tensile/friction curve browsers,
-  filter + overlay).~~ Built and live 4 September 2026 - see the "DONE"
-  entry at the top of this file and the roadmap's "Two new Looker pages"
-  entry.
+- **Phase 5, everything past checkpoint 1.** ~~Two new Looker pages
+  (tensile/friction curve browsers, filter + overlay).~~ Built and live 4
+  September 2026 - see the roadmap's "Two new Looker pages" entry.
+  ~~Curve-to-specimen link coverage.~~ Solved 7 September 2026 via two
+  additional non-time-based linking tiers - the GCS-time signal itself is
+  still destroyed for historical files exactly as found 4 September (that
+  specific method really can't be improved), but sample-number-based
+  matching doesn't need it. See the "DONE (7 September 2026)" entry at the
+  top of this file.
 - **Phase 6, in full.** `films_results_long` and its dedup rule (6.1, 6.2)
   were never built. This is the actual "pick a Pellet ID, see every test
   on that roll" deliverable - the curve views above are adjacent, not a
@@ -323,10 +368,10 @@ class of command):
    yourself, or add the file by hand via the GitHub web UI (content is
    already in the local commit / see `pipeline-roadmap.md`'s "Tests and
    CI" entry).
-2. **Curve-to-specimen link coverage is thin** (108 tensile specimens / 17
-   pellets; only 2 friction specimens / 2 pellets currently link cleanly -
-   see the "Curve analysis views" section below for the root cause). Not
-   a mechanical fix - needs a decision on how to improve it.
+2. ~~**Curve-to-specimen link coverage is thin.**~~ Solved 7 September
+   2026: tensile 865 specimens / 34 pellets, friction 820 specimens / 29
+   pellets - see the "DONE (7 September 2026)" entry at the top of this
+   file and the "Curve analysis views" section below.
 
 **Also flagged, not attempted (needs Peter's judgment, not a blocker to
 clear quickly)**: key rotation (`mecmesin-uploader`'s Jan 2026 key, the
@@ -640,21 +685,22 @@ sources and filter curve charts by pellet or extrusion ID:
   has no direction field at all (checked the schema and real rows before
   concluding this, not assumed).
 
-**Coverage is currently thin, especially for friction.** Each view keeps
-only one curve file per specimen (fixed a real fan-out bug where up to 61
-unrelated files were all linking to the same specimen - see
-`pipeline-roadmap.md`'s 1 September entry for the full account). After
-that fix: tensile has 108 specimens across 17 pellets / 20 extrusions;
-friction has only 2 specimens / 2 pellets. Root cause is
-`shared/curve_linking.py` matching by GCS upload time, which is a good
-proxy for test time on a live-ingested file but not for most of the
-historical backfill, where upload time reflects whenever the file
-happened to reach GCS, not when the test happened. Not fixed - flagged for
-Peter, since widening the match window would reintroduce the fan-out bug
-just fixed, and a real fix likely needs either accepting that backfill
-coverage stays thin (going-forward files linked via the live trigger
-should do much better, since GCS time is test time for those) or a
-different join key entirely.
+Each view keeps only one curve file per specimen (fixed a real fan-out bug
+where up to 61 unrelated files were all linking to the same specimen - see
+`pipeline-roadmap.md`'s 1 September entry for the full account).
+
+**Coverage as of 7 September 2026**: tensile 865 specimens across 34
+pellets, friction 820 specimens across 29 pellets - up from 108/17 and 2/2
+on 1 September. `shared/curve_linking.py` now has three linking tiers
+(GCS-time proximity, direct sample-number match, and a mapped-sample match
+via the permanent `films_tensile_london.sample_number_map` table), not just
+the original GCS-upload-time match, which was never a good proxy for most
+of the historical backfill (upload time there reflects whenever the file
+happened to reach GCS, not when the test happened). Full account, including
+the real friction template-naming bug this surfaced and the genuine
+remaining gaps (tensile 104 files / friction 1 file, both structurally
+unrecoverable, not a shortcoming of the method), in `pipeline-roadmap.md`'s
+7 September entry.
 
 ---
 

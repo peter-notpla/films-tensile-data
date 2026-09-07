@@ -35,7 +35,12 @@ from google.cloud import storage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.bq_retry import load_dataframe_with_retry
-from shared.curve_linking import find_specimen_link
+from shared.curve_linking import (
+    find_specimen_link,
+    find_specimen_link_by_sample,
+    find_specimen_link_by_mapped_sample,
+    DEFAULT_MAP_TABLE,
+)
 from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
 
 PROJECT_ID = "notpla-machine-data"
@@ -186,11 +191,27 @@ def main():
             rows_total = len(df) + len(row_errors)
             df = downsample_curve_minmax(df)
 
+            template_name = df["template_name"].iloc[0]
             specimen_key, delta_seconds = find_specimen_link(
-                bq, RESULTS_TABLE, gcs_created_at, df["template_name"].iloc[0]
+                bq, RESULTS_TABLE, gcs_created_at, template_name
             )
+            link_method = "time" if specimen_key else None
+            if specimen_key is None:
+                specimen_key = find_specimen_link_by_sample(
+                    bq, RESULTS_TABLE, template_name, df["raw_sample_number"].iloc[0]
+                )
+                if specimen_key is not None:
+                    link_method = "sample_number"
+            if specimen_key is None:
+                specimen_key = find_specimen_link_by_mapped_sample(
+                    bq, RESULTS_TABLE, DEFAULT_MAP_TABLE, PIPELINE_NAME.removesuffix("_raw"),
+                    template_name, df["raw_sample_number"].iloc[0]
+                )
+                if specimen_key is not None:
+                    link_method = "mapped_sample"
             df["linked_specimen_key"] = specimen_key
             df["link_time_delta_seconds"] = delta_seconds
+            df["link_method"] = link_method
             if specimen_key is not None:
                 linked_files += 1
 

@@ -17,7 +17,12 @@ from google.cloud import storage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
-from shared.curve_linking import find_specimen_link
+from shared.curve_linking import (
+    find_specimen_link,
+    find_specimen_link_by_sample,
+    find_specimen_link_by_mapped_sample,
+    DEFAULT_MAP_TABLE,
+)
 
 PROJECT_ID = "notpla-machine-data"
 BUCKET_NAME = "notpla-machine-data"
@@ -34,6 +39,7 @@ ALL_TENSILE_RAW_PREFIXES = [
     f"{TENSILE_BASE}tensiletester-films-tensile-raw-samples-failed-processing/",
 ]
 TENSILE_RESULTS_TABLE = f"{PROJECT_ID}.films_tensile_london.films_tensile_results_all_revisions"
+FRICTION_RESULTS_TABLE = f"{PROJECT_ID}.machine_data.films_friction_raw_all_revisions"
 
 
 def verify_parser():
@@ -136,8 +142,72 @@ def verify_linking():
     return all_ok
 
 
+def verify_sample_and_mapped_linking():
+    """Real-data checks for the two lower-confidence tiers added 7 September
+    2026 (find_specimen_link_by_sample, find_specimen_link_by_mapped_sample),
+    against both instruments' live tables. Read-only."""
+    bq = bigquery.Client(project=PROJECT_ID)
+    all_ok = True
+
+    print("\nDirect sample-match verification (tier 2):")
+    for label, table_id in [("tensile", TENSILE_RESULTS_TABLE), ("friction", FRICTION_RESULTS_TABLE)]:
+        row = list(bq.query(f"""
+            SELECT specimen_key, template_name, sample
+            FROM `{table_id}`
+            WHERE row_state = 'current' AND template_name IS NOT NULL AND sample IS NOT NULL
+            LIMIT 1
+        """).result())[0]
+        got = find_specimen_link_by_sample(bq, table_id, row["template_name"], row["sample"])
+        ok = got == row["specimen_key"]
+        all_ok = all_ok and ok
+        print(f"  [{label}] real (template, sample) -> {got} {'OK' if ok else 'MISMATCH, expected ' + row['specimen_key']}")
+
+    print("\nFriction template-alias verification (Films <-> FilmsOld, tier 2):")
+    aliased = list(bq.query(f"""
+        SELECT specimen_key, sample
+        FROM `{FRICTION_RESULTS_TABLE}`
+        WHERE row_state = 'current' AND template_name = 'FrictionTest-FilmsOld(V1)'
+        LIMIT 1
+    """).result())[0]
+    got = find_specimen_link_by_sample(bq, FRICTION_RESULTS_TABLE, "FrictionTest-Films(V1)", aliased["sample"])
+    ok = got == aliased["specimen_key"]
+    all_ok = all_ok and ok
+    print(f"  filename says 'Films', table has 'FilmsOld' -> {got} {'OK' if ok else 'MISMATCH, expected ' + aliased['specimen_key']}")
+
+    print("\nMapped-sample verification (tier 3, via sample_number_map):")
+    clean = list(bq.query(f"""
+        SELECT test_type, original_sample, current_sample
+        FROM `{DEFAULT_MAP_TABLE}`
+        WHERE is_ambiguous = FALSE
+        LIMIT 1
+    """).result())[0]
+    table_id = TENSILE_RESULTS_TABLE if clean["test_type"] == "tensile" else FRICTION_RESULTS_TABLE
+    template_row = list(bq.query(f"""
+        SELECT template_name FROM `{table_id}` WHERE row_state = 'current' AND sample = {clean['current_sample']} LIMIT 1
+    """).result())[0]
+    got = find_specimen_link_by_mapped_sample(
+        bq, table_id, DEFAULT_MAP_TABLE, clean["test_type"], template_row["template_name"], clean["original_sample"]
+    )
+    ok = got is not None
+    all_ok = all_ok and ok
+    print(f"  [{clean['test_type']}] unambiguous original_sample={clean['original_sample']} -> {got} {'OK' if ok else 'MISMATCH, expected a link'}")
+
+    ambiguous = list(bq.query(f"""
+        SELECT test_type, original_sample FROM `{DEFAULT_MAP_TABLE}` WHERE is_ambiguous = TRUE LIMIT 1
+    """).result())[0]
+    got = find_specimen_link_by_mapped_sample(
+        bq, TENSILE_RESULTS_TABLE, DEFAULT_MAP_TABLE, ambiguous["test_type"], "TensileTest-Films(V1)", ambiguous["original_sample"]
+    )
+    ok = got is None
+    all_ok = all_ok and ok
+    print(f"  [{ambiguous['test_type']}] ambiguous original_sample={ambiguous['original_sample']} -> {got} {'OK (stayed unlinked)' if ok else 'MISMATCH, should not have linked'}")
+
+    return all_ok
+
+
 if __name__ == "__main__":
     total, succeeded, failed, minmax_mismatches = verify_parser()
     linking_ok = verify_linking()
-    if failed or succeeded != total or minmax_mismatches or not linking_ok:
+    sample_linking_ok = verify_sample_and_mapped_linking()
+    if failed or succeeded != total or minmax_mismatches or not linking_ok or not sample_linking_ok:
         sys.exit(1)

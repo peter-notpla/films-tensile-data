@@ -10,7 +10,12 @@ from google.cloud import bigquery, storage
 from shared import email_style, gmail_sender
 from shared.bq_retry import load_dataframe_with_retry
 from shared.curve_parser import downsample_curve_minmax, extract_curve_dataframe
-from shared.curve_linking import find_specimen_link
+from shared.curve_linking import (
+    find_specimen_link,
+    find_specimen_link_by_sample,
+    find_specimen_link_by_mapped_sample,
+    DEFAULT_MAP_TABLE,
+)
 
 PROJECT_ID = os.environ.get("PROJECT_ID", "notpla-machine-data")
 BQ_DATASET = os.environ.get("BQ_DATASET", "films_tensile_london")
@@ -179,18 +184,35 @@ def process_file(cloud_event):
         rows_total = len(df) + len(row_errors)
         df = downsample_curve_minmax(df)
 
+        template_name = df["template_name"].iloc[0]
+        raw_sample_number = df["raw_sample_number"].iloc[0]
         specimen_key, delta_seconds = find_specimen_link(
-            bq_client, RESULTS_TABLE, gcs_created_at, df["template_name"].iloc[0]
+            bq_client, RESULTS_TABLE, gcs_created_at, template_name
         )
+        link_method = "time" if specimen_key else None
+        if specimen_key is None:
+            specimen_key = find_specimen_link_by_sample(
+                bq_client, RESULTS_TABLE, template_name, raw_sample_number
+            )
+            if specimen_key is not None:
+                link_method = "sample_number"
+        if specimen_key is None:
+            specimen_key = find_specimen_link_by_mapped_sample(
+                bq_client, RESULTS_TABLE, DEFAULT_MAP_TABLE, "tensile",
+                template_name, raw_sample_number
+            )
+            if specimen_key is not None:
+                link_method = "mapped_sample"
         df["linked_specimen_key"] = specimen_key
         df["link_time_delta_seconds"] = delta_seconds
+        df["link_method"] = link_method
 
         table_id = f"{PROJECT_ID}.{BQ_DATASET}.{BQ_TABLE}"
         load_dataframe_with_retry(bq_client, df, table_id)
 
         print(
             f"Loaded {len(df)} rows to {table_id} "
-            f"(linked_specimen_key={specimen_key} delta_seconds={delta_seconds})"
+            f"(linked_specimen_key={specimen_key} delta_seconds={delta_seconds} link_method={link_method})"
         )
 
         move_blob(bucket_name, blob_name, PROCESSED_PREFIX)
