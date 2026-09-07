@@ -1964,6 +1964,42 @@ test surface value), SAMPLE (individual specimens, labels like "RH 50% |
 Inside Film on Inside Film | #1"). Reset to the PELLET default before
 finishing.
 
+### Friction Curves: swapped time_s for Displacement (mm) vs Load (N) (7 September 2026)
+
+Peter asked to change the chart's axes from time_s to the standard
+mechanical-test pairing - Displacement (mm) on X, Load (N) on Y - matching
+Tensile Curves' own convention (confirmed with him directly first, since
+his message described the pairing backwards from that convention). He'd
+tried this himself and the chart came back as scattered dots.
+
+**Cause, before touching anything**: same categorical-axis fragmentation
+already fixed once for `time_s` (5/7 September) - `displacement_mm` is a
+near-unique float per point, so swapping it in raw gives the shared
+category axis almost no overlap between curves.
+
+**Fixed the same way**: added `Displacement (mm)` as a calculated field on
+`films_friction_curve_analysis` (`ROUND(displacement_mm/0.5,0)*0.5`, the
+same 0.5mm bin Tensile Curves already uses - checked the real data first,
+0-55mm range across 200 points per curve, same order of magnitude as
+tensile's own displacement range, so no reason to pick a different bin
+size). Also renamed the `load_n` field itself to `Load (N)` (previously
+only the calculated `time_s_binned`/`Curve Breakdown Label` fields had
+friendly names; the raw metric didn't) so the Y-axis reads cleanly without
+a separate axis-title override.
+
+Set the chart's X-axis dimension to the new field, sort auto-followed to
+`Displacement (mm)` ascending (no manual fix needed). Metric stayed
+`Load (N)` at Average aggregation, unchanged from the `time_s` version.
+One extra fix needed: the X-Axis "Show axis title" toggle was off (Y-axis
+had it on) - found via the Style tab's field search ("axis title"), same
+"one axis title on, one off" gap already seen once on Tensile Curves.
+Turned it on; "Displacement (mm)" now shows under the tick labels.
+
+Verified live: Pellet ID default and Sample (least-aggregated, most likely
+to expose fragmentation) modes both render as genuine connected curves
+with real friction stick-slip shape, correct axis labels both directions.
+Reset to the Pellet ID default before finishing.
+
 ---
 
 ## Phase 6: analysis layer

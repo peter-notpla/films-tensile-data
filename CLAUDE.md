@@ -5,6 +5,20 @@ of every session in this repository.
 
 ---
 
+## DONE (7 September 2026): Friction Curves axes swapped to Displacement (mm) / Load (N)
+
+Changed the chart from time_s to the standard mechanical-test pairing -
+Displacement (mm) on X, Load (N) on Y, matching Tensile Curves - after
+confirming the intended orientation directly (Peter's message described
+it backwards from that convention). Hit the same categorical-axis
+fragmentation bug already fixed once for `time_s`: added a
+`Displacement (mm)` calculated field (0.5mm bins, same as tensile) rather
+than using raw `displacement_mm`. Also renamed `load_n` to `Load (N)` and
+turned on the X-axis's "show axis title" toggle (off by default, Y-axis
+had it on). Verified live in both the default and least-aggregated
+(Sample) Curve Detail Level modes. Full account in `pipeline-roadmap.md`'s
+matching entry.
+
 ## DONE (7 September 2026): Friction Curves legend/drill-down parity with Tensile Curves
 
 Copied Tensile Curves' `Curve Detail Level` drop-down + `Curve Breakdown
