@@ -745,19 +745,26 @@ unrecoverable, not a shortcoming of the method), in `pipeline-roadmap.md`'s
 
 ---
 
-## In progress: pass-filter roll extrusion lookup
+## DONE (8 September 2026): pass-filter Pellet ID extrusion + SKU lookup
 
-Separate from the alerting pipeline work above. Building a per-roll
-Torque/Die Pressure/Melt Temperature lookup against
-`machine_collin_e25e.raw_films_extrusion` for the 8 filtered tensile pass
-tables in `gs://notpla-machine-data/claude/peter-files/tensile-exports/`.
+Resumed and finished, with a revised spec from Peter that sidestepped the
+August blocker entirely (join key dropped to Pellet ID alone, no Extrusion
+ID column). 16 new CSVs (8 extrusion, 8 SKU/formulation traceability, one
+pair per grade x RH x direction condition) built against
+`machine_collin_e25e.raw_films_extrusion` and
+`notpla-rnd-tracker.formulation_app_eu` (`v_formulations_flat`,
+`batch_variant_items`, `ingredients`), saved alongside the source tensile
+pass tables in `~/tensile_final/` and
+`gs://notpla-machine-data/claude/peter-files/tensile-exports/`
+(`260908_*_extrusion.csv` / `260908_*_sku.csv`). Only 6 of 26 distinct pass
+Pellet IDs remain unrecoverable (genuine extrusion-table coverage gap,
+confirmed again even joining on Pellet ID alone). Full account, including
+the SKU/formulation data model notes and a dedup bug caught during
+verification, in `pass-filter-extrusion-lookup.md`.
 
-**Blocked on Peter as of 26 August 2026**: 18 of 36 rolls across those
-tables have no exact match in the extrusion table, including one likely
-ID swap between two pellets and a June-2026 coverage gap in the extrusion
-table. Full findings, confirmed output format, and the exact list of rolls
-needing resolution are in `pass-filter-extrusion-lookup.md`. Once resolved,
-build the 8 output tables per that file's spec.
+**Updated same day**: the Extended window was broadened further (see
+`pipeline-roadmap.md`'s 8 September "Extended window broadened" entry) -
+26 distinct pass Pellet IDs grew to 32, unrecoverable grew from 6 to 8.
 
 Genuine backlogs, deliberately untouched:
 - Tensile and friction raw curve backlogs are both resolved: Phase 5

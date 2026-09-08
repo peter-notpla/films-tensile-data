@@ -2114,6 +2114,47 @@ comma-padded stragglers, counts add up to the pre-strip totals.
 
 ---
 
+### Extended window broadened, pass-filter tables rebuilt (8 September 2026)
+
+Same day as the pass-filter extrusion/SKU lookup above. A colleague advised
+broadening the Extended property window further: EV AB's lower Strength
+bound moved from 9.5 to 8.4 MPa (now matching GN AB's), and both grades'
+lower Modulus bound moved to 180 MPa (from 250 EV AB / 216 GN AB). Strain
+bounds, all upper bounds, and the Core (±1σ) window are unchanged. Full
+before/after numbers in `~/tensile-exports/260825_window_filter_methodology.txt`
+Section 3a.
+
+Re-ran the Section 4 filter (50% RH MD rows -> broadened window -> group by
+roll -> average -> classify) against `films_tensile_results` with the new
+bounds. Diffed the resulting roll list against the existing tables (by
+Pellet ID + Extrusion ID pair) to confirm no existing roll was dropped
+(narrow/Core window didn't move, so nothing could newly fail it) before
+appending only the newly-qualifying rolls: 8 for EV AB (27 -> 35 rolls),
+1 for GN AB (9 -> 10 rolls), all classified Extended Window (Broadened).
+For the 3 non-MD-50% conditions, pulled each new roll's full unfiltered
+data (same roll-carries-over logic as the original methodology) - a roll
+only landed in a condition's table if it actually had data there.
+
+Extended the 16 `260908_*_extrusion.csv`/`_sku.csv` lookup tables (see
+`pass-filter-extrusion-lookup.md`, updated with new counts) for the 6
+newly-qualifying distinct Pellet IDs, using the same join logic as the
+original build. All 24 tables in `~/tensile-exports` (8 agg + 8 extrusion +
+8 SKU) re-sorted ascending by the Pellet ID's trailing 4-digit number, per
+Peter's explicit spec this session.
+
+Verified: no duplicate roll/pellet rows or columns in any of the 24
+tables (checked programmatically); all 24 confirmed in ascending trailing-
+4-digit order; the 6 new pellets' extrusion/SKU data spot-checked against
+source tables (e.g. new pellet `GN AB AH AM 260616 NV PF 1256` shares
+batch-variant code `AH` with existing `...PF 1248`, and its SKU column
+came back byte-identical, confirming the batch-variant reuse logic).
+Distinct Pellet ID count across all 8 agg tables: 26 -> 32; unrecoverable
+(no extrusion-table match) count: 6 -> 8. Synced all 25 changed/updated
+files (24 tables + the methodology note) back to
+`gs://notpla-machine-data/claude/peter-files/tensile-exports/`.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
