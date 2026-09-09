@@ -43,20 +43,36 @@ Where a pellet has exactly one matching row, SD is shown as `N/A`. Where a
 pellet has zero matching rows, the row is still included with blank T/P/M
 cells (Peter's explicit choice, 8 September).
 
-**SKU tables** - one row per ingredient (SKU) in that grade's formulation,
-sorted by SKU code ascending:
+**SKU tables** - **transposed 8 September 2026** (same day as the build,
+Peter's request: the original layout was too wide with one column per
+pellet). Now one row per pass Pellet ID in that condition, sorted by
+trailing 4-digit pellet number ascending, matching the extrusion tables'
+orientation:
 
-1. SKU Code
-2. Real Name (`ingredients.trade_name_inci`)
-3. Concentration (%) (`wt_percent` from `v_formulations_flat.dry_weight_items`,
-   constant across all batch-variant codes for a given grade - confirmed by
-   direct query before building)
-4. one column per pass Pellet ID in that condition, cell = that pellet's
-   **ingredient batch/lot code** (`ingredient_batch_code` from
-   `notpla-rnd-tracker.formulation_app_eu.batch_variant_items`) for that SKU -
-   not a repeated SKU code. Peter's explicit spec (8 September): "include
-   the SKU code in one column, and then in the rows for each sku code I need
-   the batch code under a given pellet ID."
+1. Pellet ID (row header; blank on the two metadata rows above the data)
+2. one column per SKU code in that grade's formulation, sorted by SKU code
+   ascending. The two header rows above the data rows carry, per SKU
+   column, the Real Name (`ingredients.trade_name_inci`) and Concentration
+   (%) (`wt_percent` from `v_formulations_flat.dry_weight_items`, constant
+   across all batch-variant codes for a given grade - confirmed by direct
+   query before building). Each data cell is that pellet's **ingredient
+   batch/lot code** (`ingredient_batch_code` from
+   `notpla-rnd-tracker.formulation_app_eu.batch_variant_items`) for that
+   SKU - not a repeated SKU code.
+
+Original spec (8 September, same session): "include the SKU code in one
+column, and then in the rows for each sku code I need the batch code under
+a given pellet ID" - superseded by the transpose above, same underlying
+data, orientation only.
+
+**Found and fixed 9 September 2026**: the transpose above had only ever
+been applied to the local copies in `~/tensile-exports/` - this doc's own
+description of it was never committed, and the 8 transposed SKU files were
+never re-synced to `gs://notpla-machine-data/claude/peter-files/tensile-exports/`,
+which still held the pre-transpose (SKU-code-first) version of all 8 files
+until today. Verified all 8 local files were structurally sound (consistent
+column counts, no ragged rows) before overwriting the stale GCS copies;
+spot-checked two of the eight afterward to confirm the new header landed.
 
 ## How this differs from the original spec (26 August)
 
