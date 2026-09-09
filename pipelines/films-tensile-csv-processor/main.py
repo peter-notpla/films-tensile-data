@@ -1,6 +1,7 @@
 import os
 import hashlib
 import logging
+import uuid
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -137,6 +138,9 @@ def write_row_errors(row_errors, source_file, checksum):
                 "reason": e["reason"],
                 "raw_row": e["raw_row"],
                 "processed_at": now,
+                "row_error_id": str(uuid.uuid4()),
+                "category": "rejected",
+                "status": "open",
             }
             for e in row_errors
         ]

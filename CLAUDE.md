@@ -5,6 +5,25 @@ of every session in this repository.
 
 ---
 
+## DONE (9 September 2026): fixed the per-row flag/rescue system, dead since its own deploy
+
+Built 8 September (found uncommitted and unlogged - same recurring pattern
+as before), broken every hour since its own deploy, fixed 9 September. Two
+real bugs, not one: `films-pipeline-alerter-sa` was never granted BigQuery
+read access on `films_tensile_london`/`machine_data`/`machine_collin_e25e`
+(Peter granted directly, production IAM change), and after that was fixed,
+marking alerted rows via `UPDATE` failed because BigQuery blocks DML
+against rows still in the streaming buffer (~90 min after `insert_rows_json`)
+- fixed by replacing the `UPDATE` with an insert-only tracking table
+(`films_pipeline_row_issue_alerts_sent`), same dedup pattern the existing
+per-file alerter already uses. Verified live: the alerter now completes
+clean and dedups correctly across repeated runs. **Still not deployed**:
+`films-pipeline-row-rescue` (the Cloud Function the email links point to)
+- written, never shipped, so rescue links currently read "(link not
+configured)". Full account in `pipeline-roadmap.md`'s matching entry.
+
+---
+
 ## DONE (7 September 2026): Friction Curves axes swapped to Displacement (mm) / Load (N)
 
 Changed the chart from time_s to the standard mechanical-test pairing -
@@ -660,6 +679,21 @@ aggregation (`crossSeriesReducer`) only preserves label values for its
   hourly manifest-based alerter) still always routes to peter@notpla.com.
   Failure alerts from the hourly alerter route to Katie, Emily, or
   peter@notpla.com by `user_initials`, same as before.
+- **Per-row flag/rescue (added 8 September, fixed 9 September)**: the
+  hourly alerter also scans `films_tensile_results_all_revisions`,
+  `films_friction_raw_all_revisions`, and `raw_films_extrusion` for rows
+  with `validation_status != 'valid'` (flagged, not rejected, by
+  `shared/id_validation.py`) and bundles them with any hard-rejected rows
+  into one email per hour to peter@notpla.com, each with a rescue link.
+  Dedup for this path uses an insert-only table,
+  `films_pipeline_ops.films_pipeline_row_issue_alerts_sent`, checked via
+  `NOT EXISTS` - **do not** switch this back to an `UPDATE ... SET
+  alerted_at` on `films_pipeline_row_errors` directly; that was tried
+  first and fails every time because BigQuery blocks DML against rows
+  still in the streaming buffer (up to ~90 minutes after
+  `insert_rows_json`). **`films-pipeline-row-rescue`, the function the
+  rescue links point to, is not deployed yet** - links currently read
+  "(link not configured)". See `pipeline-roadmap.md`'s 9 September entry.
 
 ---
 

@@ -2,6 +2,7 @@ import os
 import hashlib
 import tempfile
 import traceback
+import uuid
 from datetime import datetime, timezone
 
 from google.cloud import bigquery
@@ -74,6 +75,9 @@ def write_row_errors(project_id, row_errors, source_file, checksum):
                 "reason": e["reason"],
                 "raw_row": e["raw_row"],
                 "processed_at": now,
+                "row_error_id": str(uuid.uuid4()),
+                "category": "rejected",
+                "status": "open",
             }
             for e in row_errors
         ]

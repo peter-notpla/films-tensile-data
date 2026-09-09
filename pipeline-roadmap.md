@@ -2155,6 +2155,94 @@ files (24 tables + the methodology note) back to
 
 ---
 
+### Per-row flag + rescue: built 8 September, broken silently until fixed 9 September
+
+Same "session work never logged" pattern as before (28 Aug, 30 Aug, 1 Sep,
+7 Sep) - this entry covers a full session's work discovered uncommitted
+and unlogged, plus what it took to actually get it running.
+
+**What was built 8 September (found uncommitted)**: a per-row companion to
+the existing per-file failure alerting. `films_pipeline_row_errors` (until
+now only hard-rejected rows) also gets rows that were inserted but flagged
+by `shared/id_validation.py` (`validation_status != 'valid'` - malformed
+Pellet/Extrusion IDs, flagged rather than rejected by design). New table
+columns added live: `row_error_id`, `category` (`rejected`/`flagged`),
+`identity_key`, `status`, `alerted_at`, `rescued_at`, `rescued_by`,
+`rescued_source_file`. All three csv-processors updated and redeployed to
+tag every rejected row with `row_error_id`/`category='rejected'`/
+`status='open'`. `films-pipeline-failure-alerter` rewritten to also: scan
+`films_tensile_results_all_revisions`, `films_friction_raw_all_revisions`,
+`raw_films_extrusion` for flagged rows every hour; bundle every open,
+unalerted row issue (rejected + flagged) into one email to peter@notpla.com
+with a "Fix / discard" link per row; and bundle the existing per-file
+failure alerts into one email per route per run instead of one per file
+(upload batches land raw+summary together, so this collapses a batch into
+one email). A new `films-pipeline-row-rescue` Cloud Function and
+`shared/row_rescue.py` were written to serve those links (view/edit/
+resubmit or discard), meant to sit behind Identity-Aware Proxy restricted
+to peter@notpla.com - **written but never deployed**, so it doesn't exist
+in GCP yet and the rescue links in emails read "(link not configured)"
+until it is.
+
+**Found broken, 9 September**: the alerter deploy (8 September, 18:17 UTC)
+crashed on every single hourly run since, 14 times in a row, with `403
+Forbidden` querying `films_tensile_london.films_tensile_results_all_revisions`
+- `films-pipeline-alerter-sa` had never been granted read access on
+`films_tensile_london`, `machine_data`, or `machine_collin_e25e` (only a
+different function's SA, `films-pipeline-digest-sa`, had it). Confirmed via
+direct IAM check, not assumed. Net effect: the entire flagged-row/row-issue
+email feature had never actually run once, despite being deployed - the
+existing per-file failure-alert bundling was unaffected (it executes
+earlier in the same function, before the crash point).
+
+**Fixed 9 September**: Peter granted `films-pipeline-alerter-sa` READER on
+all three datasets directly (legacy dataset ACL update via `bq update
+--source`, since `bq add-iam-policy-binding` isn't allowlisted on this
+project) - a production IAM change, done by Peter himself per standing
+practice, not by Claude. First live run afterward found 39 real flagged
+rows (genuine malformed IDs sitting in production, never surfaced before)
+and sent the first-ever row-issue bundle email - but then hit a second,
+different bug: the `UPDATE ... SET alerted_at` used to mark rows as sent
+failed with `UPDATE or DELETE statement over table ... would affect rows
+in the streaming buffer, which is not supported` - rows written via
+`insert_rows_json` (streaming insert) block DML against themselves for up
+to ~90 minutes. Every unalerted row would have been re-emailed on every
+subsequent hourly run until the buffer cleared.
+
+**Fix**: replaced the `UPDATE` with an insert-only tracking table,
+`films_pipeline_ops.films_pipeline_row_issue_alerts_sent` (`row_error_id`,
+`sent_at`), checked via `NOT EXISTS` in `find_unalerted_row_issues` -
+exactly the same dedup pattern `films_pipeline_alerts_sent` already uses
+for per-file alerts (see `find_new_failures`), which never had this
+problem because it was never built as an `UPDATE` in the first place. A
+`SELECT`/`JOIN` against a streaming buffer works fine; only `UPDATE`/
+`DELETE` are blocked, so this sidesteps the restriction rather than racing
+it.
+
+**Verified**: unit tests pass (5/5) after the fix; deployed via
+`scripts/deploy.sh` (revision `films-pipeline-failure-alerter-00012-qot`,
+confirmed serving, service account unchanged); invoked live twice in a
+row. First call processed the entire historical backlog that had never
+successfully alerted before (1,194 row issues: 1,155 old rejected rows
+back to 28 August, plus the 39 newly-found flagged rows) and sent one real
+bundle email - **not a synthetic test, Peter's actual inbox got a
+1,194-row email as a direct result of this fix landing**, flagged to him
+live rather than discovered after the fact. Second call returned
+`row_issues_checked: 0`, confirming the new dedup table actually holds.
+
+**Not done yet**:
+- `films-pipeline-row-rescue` still isn't deployed - rescue links remain
+  non-functional until it is, plus its Identity-Aware Proxy restriction to
+  peter@notpla.com (see the function's own docstring for the setup notes)
+  and setting `ROW_RESCUE_URL` on the alerter afterward (chicken-and-egg:
+  can't be set before the rescue function has a URL).
+- No synthetic end-to-end test (a fake malformed row pushed through a real
+  pipeline, confirmed flagged, confirmed alerted, confirmed rescuable) has
+  been run yet - the live test above verified the alerting mechanics
+  against real existing data, not the full flag-to-rescue loop.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
