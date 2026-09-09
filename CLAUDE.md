@@ -506,6 +506,27 @@ GCP project `notpla-machine-data`, region `europe-west2`.
   framing, then a snappy closing clause" and "Not A, not B. Just C."
 - Peter finds BigQuery unintuitive to query directly and prefers Looker.
 - Explain roadblocks clearly when they happen.
+- **Reliability is the deliverable, not a claim about it (Peter's explicit
+  standing instruction, 9 September 2026).** He should never have to ask a
+  sharp follow-up question to discover a gap or bug that should have been
+  caught before "done" was said - that costs him time and trust, and he
+  has said plainly he cannot be expected to keep doing it. Concretely,
+  before calling anything done:
+  - When a bug is found and fixed in one place, proactively check every
+    other place in the same feature that shares the same underlying
+    mechanism, before reporting back - do not wait to be asked or found
+    out. (This exact failure happened 9 September: the alerter's
+    `alerted_at` streaming-buffer bug was fixed, but the identical
+    mechanism in row-rescue's `mark_resolved`, `apply_revision_handling`'s
+    archive step, and the extrusion direct-`UPDATE` were only checked
+    after Peter pushed back, not proactively.)
+  - Test every distinct code path a feature can take, not just the one
+    directly asked about, before calling it verified - and say plainly,
+    unprompted, which paths were and weren't tested rather than leaving a
+    gap for him to discover.
+  - If time or tooling only allows testing the mechanism directly (not
+    the full user-facing path), say so explicitly rather than implying a
+    full end-to-end test happened.
 
 ---
 

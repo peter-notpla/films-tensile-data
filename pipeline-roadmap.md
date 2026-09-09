@@ -2317,6 +2317,54 @@ covered, but the upload/UPDATE logic itself has only been read, not run.
 
 ---
 
+### Resubmit-path data-write safety confirmed live, same day, after Peter pushed back
+
+Peter asked directly whether the *underlying* BigQuery tables (not just
+`films_pipeline_row_errors`) end up correct after a resubmit, given the
+day's two streaming-buffer bugs. Right question: the "not done" item above
+was a real, unverified gap, not a hypothetical one.
+
+Read `shared/revision_handling.py` and all three csv-processors' write
+calls first: `films_tensile_results_all_revisions`,
+`films_friction_raw_all_revisions`, and `raw_films_extrusion` are all
+written via `load_table_from_dataframe` (a batch load job), never
+`insert_rows_json` (streaming insert) - only `films_pipeline_row_errors`
+and its two dedup/resolution tables use streaming insert, which is the
+only BigQuery write path with the ~90-minute edit restriction. Batch-
+loaded rows go straight into permanent storage and were never subject to
+it, regardless of how recently they landed.
+
+Verified this live rather than trusting the read, both cases matching a
+resubmit acting on a row that had just been flagged (the realistic case,
+not an edge one):
+- Batch-loaded a fake `row_state = 'current'` tensile row (`specimen_key`
+  `tensiletester-1|tensile|1970-01-01T00:00|99999999`, obviously fake),
+  then immediately called the exact `apply_revision_handling` function a
+  real resubmit's re-ingestion would call - archived the old row
+  correctly, zero delay, no error.
+- Batch-loaded a fake extrusion row (`key = 'CLAUDE-TEST-KEY-99999999'`),
+  then immediately ran the exact `UPDATE` `handle_extrusion_flagged_resubmit`
+  issues - 1 row affected, zero delay, no error.
+
+Both test rows deleted immediately afterward with no delay either (same
+reason: batch-loaded rows aren't subject to the restriction on delete any
+more than on update) - confirmed clean, zero rows remaining in either
+table.
+
+**Scope of what this does and doesn't cover**: this confirms the actual
+database write - the thing Peter specifically asked about - works
+correctly regardless of timing. It does not replace a real end-to-end
+click-through of the resubmit form (upload the corrected CSV, wait for
+the real GCS trigger to fire, confirm the row lands) - that still hasn't
+been run, flagged honestly rather than implied as covered.
+
+**Standing instruction added as a direct result of this exchange**: see
+`CLAUDE.md`'s Working style section, new bullet on proactively checking
+every code path sharing a fixed bug's mechanism before calling something
+done, not waiting to be asked.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
