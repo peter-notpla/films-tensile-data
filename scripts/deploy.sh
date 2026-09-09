@@ -4,11 +4,13 @@
 # directory it's pointed at: nothing outside it, including repo-root
 # shared/, is ever included. See pipeline-roadmap.md item 2.1 / Phase 4.
 #
-# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account] [runtime] [memory]
+# Usage: scripts/deploy.sh <pipeline-dir> [function-name] [service-account] [runtime] [memory] [trigger] [entry-point] [env-vars]
 #   scripts/deploy.sh films-extrusion-csv-processor
 #   scripts/deploy.sh films-extrusion-csv-processor films-extrusion-csv-processor sa-extrusion-ingest@notpla-machine-data.iam.gserviceaccount.com
 #   scripts/deploy.sh films-friction-raw-processor films-friction-raw-processor sa-friction-ingest@notpla-machine-data.iam.gserviceaccount.com python312
 #   scripts/deploy.sh films-pipeline-failure-alerter films-pipeline-failure-alerter "" "" 512Mi
+#   scripts/deploy.sh films-pipeline-row-rescue films-pipeline-row-rescue films-pipeline-row-rescue-sa@notpla-machine-data.iam.gserviceaccount.com python312 "" http rescue
+#   scripts/deploy.sh films-pipeline-failure-alerter films-pipeline-failure-alerter "" "" "" "" "" ROW_RESCUE_URL=https://films-pipeline-row-rescue-plngeip6ya-nw.a.run.app
 #
 # function-name defaults to pipeline-dir, which matches all pipelines
 # today. service-account, if omitted, leaves the function's current
@@ -20,6 +22,28 @@
 # automatically without it) - leave it unset for every normal redeploy.
 # memory, if omitted, leaves the function's current memory untouched, same
 # reasoning as runtime - only pass it when actually changing the limit.
+# trigger is only needed for a function's first-ever deploy too, same
+# reasoning as runtime - an existing function keeps its trigger type
+# automatically without it, and gcloud errors outright on a brand-new
+# function with no trigger specified at all. Only "http" is supported
+# (the only trigger type this repo has ever needed for a first-time HTTP
+# function); event-triggered first deploys still need their own
+# --trigger-bucket/--trigger-event-filters invocation, not this script.
+# entry-point is, again, only needed for a function's first-ever deploy -
+# an existing function keeps whatever entry point it was created with
+# (e.g. films-pipeline-failure-alerter's is check_and_alert, not its
+# function name) automatically on every redeploy. Without --entry-point,
+# gcloud looks for a function named after the deployed function itself,
+# which fails outright if the code's actual decorated function is named
+# something else, as films-pipeline-row-rescue's ("rescue") is.
+# env-vars, if given, is passed straight to --update-env-vars (comma-
+# separated KEY=VALUE pairs, gcloud's own syntax) and merges into whatever
+# env vars the function already has - existing ones not mentioned are left
+# alone. Exists so an env-var-only change never has a reason to reach for
+# a raw `gcloud functions deploy --source=...` instead of this script -
+# that always omits shared/ staging and crashes the container outright
+# (ModuleNotFoundError), even for a change that has nothing to do with
+# shared/ at all.
 
 set -euo pipefail
 
@@ -91,6 +115,30 @@ if [ -n "$MEMORY" ]; then
     MEMORY_ARGS=(--memory="$MEMORY")
 fi
 
+TRIGGER="${6:-}"
+TRIGGER_ARGS=()
+if [ -n "$TRIGGER" ]; then
+    case "$TRIGGER" in
+        http) TRIGGER_ARGS=(--trigger-http) ;;
+        *)
+            echo "Unsupported trigger '$TRIGGER' - only 'http' is supported by this script." >&2
+            exit 1
+            ;;
+    esac
+fi
+
+ENTRY_POINT="${7:-}"
+ENTRY_POINT_ARGS=()
+if [ -n "$ENTRY_POINT" ]; then
+    ENTRY_POINT_ARGS=(--entry-point="$ENTRY_POINT")
+fi
+
+ENV_VARS="${8:-}"
+ENV_VARS_ARGS=()
+if [ -n "$ENV_VARS" ]; then
+    ENV_VARS_ARGS=(--update-env-vars="$ENV_VARS")
+fi
+
 if [ -n "$SERVICE_ACCOUNT" ]; then
     echo "Deploying $FUNCTION_NAME (region=$REGION, source=$TARGET_DIR, service-account=$SERVICE_ACCOUNT) ..."
     gcloud functions deploy "$FUNCTION_NAME" \
@@ -98,6 +146,9 @@ if [ -n "$SERVICE_ACCOUNT" ]; then
         --gen2 \
         "${RUNTIME_ARGS[@]}" \
         "${MEMORY_ARGS[@]}" \
+        "${TRIGGER_ARGS[@]}" \
+        "${ENTRY_POINT_ARGS[@]}" \
+        "${ENV_VARS_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --service-account="$SERVICE_ACCOUNT" \
         --quiet
@@ -108,6 +159,9 @@ else
         --gen2 \
         "${RUNTIME_ARGS[@]}" \
         "${MEMORY_ARGS[@]}" \
+        "${TRIGGER_ARGS[@]}" \
+        "${ENTRY_POINT_ARGS[@]}" \
+        "${ENV_VARS_ARGS[@]}" \
         --source="$TARGET_DIR" \
         --quiet
 fi

@@ -5,6 +5,34 @@ of every session in this repository.
 
 ---
 
+## DONE (9 September 2026): films-pipeline-row-rescue deployed, public by design, verified live
+
+Deployed for the first time (was written 8 September, never shipped).
+Deliberately **not** behind Identity-Aware Proxy - Peter's explicit call:
+only peter@notpla.com/katie/emily ever get these emails, and any of them
+should be able to act on a row while another is OOO, so access is via the
+unguessable per-row link token, not a login. Runs on its own least-
+privilege service account (`films-pipeline-row-rescue-sa`); Cloud Run
+invoker opened to `allUsers` to match. `scripts/deploy.sh` gained optional
+`trigger`/`entry-point`/`env-vars` params to support this - a brand-new
+HTTP function's first deploy needs flags no existing pipeline's redeploy
+ever needed, and env-vars specifically exists so nobody has to reach for
+a raw `gcloud functions deploy` (the ModuleNotFoundError trap) just to set
+one environment variable.
+
+Found and properly fixed a second streaming-buffer bug in `mark_resolved`
+(same root cause as the alerter's `alerted_at` bug above, this time on
+"Discard"/"Resubmit") - first pass just asked the user to retry after a
+delay, which Peter correctly rejected as unworkable given people click
+these links within minutes of the email. Real fix: added an insert-only
+`films_pipeline_row_resolutions` table, same pattern as the alerter's fix,
+so resolving a row never requires an `UPDATE` at all. Verified live: a
+synthetic test row discarded immediately with zero delay after the fix,
+where it had failed on the first attempt before it. Full account in
+`pipeline-roadmap.md`'s matching 9 September entry.
+
+---
+
 ## DONE (9 September 2026): fixed the per-row flag/rescue system, dead since its own deploy
 
 Built 8 September (found uncommitted and unlogged - same recurring pattern
@@ -691,9 +719,20 @@ aggregation (`crossSeriesReducer`) only preserves label values for its
   alerted_at` on `films_pipeline_row_errors` directly; that was tried
   first and fails every time because BigQuery blocks DML against rows
   still in the streaming buffer (up to ~90 minutes after
-  `insert_rows_json`). **`films-pipeline-row-rescue`, the function the
-  rescue links point to, is not deployed yet** - links currently read
-  "(link not configured)". See `pipeline-roadmap.md`'s 9 September entry.
+  `insert_rows_json`). **`films-pipeline-row-rescue` is deployed and live**
+  (9 September) - rescue links work. It is deliberately public (no
+  Identity-Aware Proxy, no login): Peter's explicit call, since only
+  peter@notpla.com/katie/emily ever receive these emails and any of them
+  should be able to act on a row while another is OOO. Access control is
+  the unguessable per-row `row_error_id` token in the link, nothing else -
+  do not add auth here without checking with Peter first, it was removed
+  from scope deliberately, not an oversight. Its own `mark_resolved` uses
+  the same insert-only pattern as the alerter's dedup, via
+  `films_pipeline_ops.films_pipeline_row_resolutions` - do not change it
+  back to an `UPDATE` on `films_pipeline_row_errors` either, same
+  streaming-buffer reason, confirmed to bite in realistic use (someone
+  clicking the link within minutes of the email), not just in theory. See
+  `pipeline-roadmap.md`'s 9 September entry.
 
 ---
 

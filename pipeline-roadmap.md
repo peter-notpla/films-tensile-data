@@ -2243,6 +2243,80 @@ live rather than discovered after the fact. Second call returned
 
 ---
 
+### `films-pipeline-row-rescue` deployed, public by design, synthetic end-to-end test passed (9 September 2026)
+
+Closes out the "not done yet" items above from the same day's earlier entry.
+
+**Access model, Peter's explicit decision, overriding the code's own
+docstring assumption**: the function does no identity-based access control
+(no Identity-Aware Proxy) - anyone with a row's link can act on it. This is
+deliberate: only peter@notpla.com, katie@notpla.com and emily's address
+ever receive these emails, and Peter wants any of the three able to act on
+a row while another is OOO, not identity-locked to whoever originally
+received it. Security is the per-row `row_error_id` (an unguessable UUID)
+in the link, not a login.
+
+**Dedicated least-privilege service account**: `films-pipeline-row-rescue-sa`,
+independent of `films-pipeline-alerter-sa` - WRITER on `films_pipeline_ops`
+and `machine_collin_e25e` (dataset ACLs), `roles/storage.objectCreator` on
+the bucket (create-only, no read/delete), `roles/bigquery.jobUser` at
+project level (missing on the first attempt - a dataset ACL alone doesn't
+let a principal run a query job at all, distinct from data access; caused
+a 403 on the very first live test, fixed by granting it). Cloud Run
+`roles/run.invoker` granted to `allUsers`, matching the access model above -
+confirmed the endpoint was otherwise completely unreachable (empty IAM
+policy, 403 on any call) before this grant.
+
+**`scripts/deploy.sh` extended, not bypassed**, for gaps this was its first
+real brand-new-HTTP-function deploy: added optional `trigger` (`http`),
+`entry-point`, and `env-vars` params, each only needed on a function's
+first-ever deploy or when actually changing env vars, same convention as
+the existing `runtime`/`memory` params. The env-vars gap is what matters
+most going forward: without it, the only way to set `ROW_RESCUE_URL` on
+the alerter would have been a raw `gcloud functions deploy --source=...`,
+which is the exact ModuleNotFoundError trap this script exists to prevent
+(confirmed live - reached for it once by mistake mid-session, it crashed
+the container exactly as predicted, Cloud Run correctly kept the prior
+revision at 100% traffic, no outage, just a wasted deploy).
+
+**A second, more serious bug found and properly fixed, not just papered
+over**: `mark_resolved()` (the function backing both "Discard" and
+"Resubmit") originally did an `UPDATE` directly on the row it was
+resolving - the identical mistake already made and fixed once this same
+day in the alerter's `alerted_at` write. First attempt at a fix just
+caught the error and asked the user to retry in a few minutes; Peter
+pushed back hard on this as unacceptable given the realistic case is
+someone clicking the link within seconds-to-minutes of the alert email,
+not hours later. Correct fix, matching the alerter's own pattern: added
+`films_pipeline_ops.films_pipeline_row_resolutions` (insert-only,
+`row_error_id`/`status`/`resolved_at`/`resolved_by`/`resolved_source_file`),
+and changed `mark_resolved` to insert a new row there instead of updating
+the original - `lookup_row_error` now `LEFT JOIN`s the latest resolution
+in over the original row's stale status column, which is never written
+again after its initial insert. Confirmed this actually eliminates the
+delay rather than working around it: the same test token that failed on
+first attempt with the streaming-buffer error resolved cleanly on retry
+immediately after this fix, no wait required.
+
+**Verified end-to-end with a genuine synthetic test**: inserted an
+obviously-fake row (`pellet_id`/`extrusion_id`/`notes` all literally
+"CLAUDE TEST ROW", `row_error_id` a throwaway UUID) directly into
+`films_pipeline_row_errors`, had Peter open the real emailed-link-shaped
+URL and click through it himself rather than curl (the endpoint being
+newly public triggered Claude Code's own safety classifier, blocking
+further automated calls to it from this session - expected and correct
+given what it can now do). Confirmed: the form rendered the fake data
+correctly, "Discard this row" completed cleanly with no delay, and the
+row now shows as resolved via the new join.
+
+**Not done**: no synthetic test yet of the resubmit path specifically (the
+GCS-upload-into-a-watch-folder branch, or the direct extrusion-table
+`UPDATE` branch) - only discard was exercised live. Both share the same
+now-fixed `mark_resolved`, so the specific bug this session found is
+covered, but the upload/UPDATE logic itself has only been read, not run.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~

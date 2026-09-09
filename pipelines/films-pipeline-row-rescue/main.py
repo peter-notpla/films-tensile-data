@@ -18,6 +18,7 @@ exception to "just drop a corrected CSV in the watch folder."
 
 import json
 import os
+from datetime import datetime, timezone
 from html import escape
 
 import functions_framework
@@ -31,6 +32,18 @@ PROJECT_ID = os.environ.get("PROJECT_ID", "notpla-machine-data")
 BUCKET = os.environ.get("BUCKET", "notpla-machine-data")
 ROW_ERRORS_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_row_errors"
 EXTRUSION_TABLE = f"{PROJECT_ID}.machine_collin_e25e.raw_films_extrusion"
+
+# Insert-only, never UPDATEd - added 9 September 2026 after the original
+# design (an UPDATE directly on ROW_ERRORS_TABLE) turned out to fail
+# whenever someone acted on a row within ~90 minutes of it being flagged,
+# which is the realistic common case (the alerter emails the link the
+# same hour the row is written). BigQuery blocks UPDATE/DELETE on a row
+# still in its streaming buffer but allows SELECT immediately, so
+# recording each resolution as a new row here - looked up by JOIN, never
+# written onto the original row - sidesteps the restriction entirely
+# instead of asking the caller to wait it out. Same pattern
+# films_pipeline_alerts_sent already uses for per-file alert dedup.
+ROW_RESOLUTIONS_TABLE = f"{PROJECT_ID}.films_pipeline_ops.films_pipeline_row_resolutions"
 
 # Lifted from each pipeline's deployed env vars - same pattern as
 # films-pipeline-failure-alerter's FAILED_PREFIXES. Only tensile/friction
@@ -74,7 +87,24 @@ def get_actor_email(request):
 
 
 def lookup_row_error(token):
-    query = f"SELECT * FROM `{ROW_ERRORS_TABLE}` WHERE row_error_id = @token"
+    """Left-joins in the most recent resolution, if any - the original row
+    in ROW_ERRORS_TABLE is never modified once written, so its own
+    status/rescued_* columns are stale by design and ignored here in
+    favour of whatever films_pipeline_row_resolutions says."""
+    query = f"""
+        SELECT e.* EXCEPT(status, rescued_at, rescued_by, rescued_source_file),
+               COALESCE(r.status, e.status) AS status,
+               r.resolved_at AS rescued_at,
+               r.resolved_by AS rescued_by,
+               r.resolved_source_file AS rescued_source_file
+        FROM `{ROW_ERRORS_TABLE}` e
+        LEFT JOIN (
+            SELECT row_error_id, status, resolved_at, resolved_by, resolved_source_file
+            FROM `{ROW_RESOLUTIONS_TABLE}`
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY row_error_id ORDER BY resolved_at DESC) = 1
+        ) r ON r.row_error_id = e.row_error_id
+        WHERE e.row_error_id = @token
+    """
     job_config = bigquery.QueryJobConfig(query_parameters=[
         bigquery.ScalarQueryParameter("token", "STRING", token),
     ])
@@ -83,21 +113,17 @@ def lookup_row_error(token):
 
 
 def mark_resolved(token, status, actor, rescued_source_file):
-    job_config = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("token", "STRING", token),
-        bigquery.ScalarQueryParameter("status", "STRING", status),
-        bigquery.ScalarQueryParameter("actor", "STRING", actor),
-        bigquery.ScalarQueryParameter("rescued_source_file", "STRING", rescued_source_file),
-    ])
-    bq_client.query(
-        f"""
-        UPDATE `{ROW_ERRORS_TABLE}`
-        SET status = @status, rescued_at = CURRENT_TIMESTAMP(), rescued_by = @actor,
-            rescued_source_file = @rescued_source_file
-        WHERE row_error_id = @token
-        """,
-        job_config=job_config,
-    ).result()
+    """Inserts a new resolution row rather than updating the original -
+    see ROW_RESOLUTIONS_TABLE's comment above for why."""
+    errors = bq_client.insert_rows_json(ROW_RESOLUTIONS_TABLE, [{
+        "row_error_id": token,
+        "status": status,
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        "resolved_by": actor,
+        "resolved_source_file": rescued_source_file,
+    }])
+    if errors:
+        raise RuntimeError(f"Failed to write resolution for {token}: {errors}")
 
 
 def page(title, body_html):
