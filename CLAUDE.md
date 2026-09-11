@@ -5,6 +5,25 @@ of every session in this repository.
 
 ---
 
+## DONE (11 September 2026): row-issue alerts now also route to the owner
+
+Peter reviewed the row-flag/rescue flow ahead of Katie and Emily starting
+to use it and asked for the gap closed: row-issue emails (built 8
+September) went only to peter@notpla.com, unlike file-failure alerts,
+which already route to Katie/Emily by matching User Initials against
+`films_pipeline_user_directory`. `films-pipeline-failure-alerter/main.py`
+now additionally sends each owner their own subset (same rescue links)
+when a row's initials resolve to them - Peter still gets everything,
+unchanged. Deployed (revision `films-pipeline-failure-alerter-00015-roq`)
+and verified live with a synthetic row (deleted after). Real-world
+coverage today is zero - almost no real file has a filled-in User
+Initials value, checked against the actual backlog - so this is dormant
+until that changes, not broken. Full account, including the exact
+verification method and why a real test email went to Katie's inbox as
+part of it, in `pipeline-roadmap.md`'s matching 11 September entry.
+
+---
+
 ## DONE (9 September 2026): films-pipeline-row-rescue deployed, public by design, verified live
 
 Deployed for the first time (was written 8 September, never shipped).

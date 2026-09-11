@@ -190,11 +190,17 @@ def find_unalerted_row_issues(bq):
     return list(bq.query(query).result())
 
 
-def build_row_issue_bundle_email(row_issues):
+def build_row_issue_bundle_email(row_issues, owner_route=None):
     """One email per run covering every row flagged or rejected since the
     last run (added 8 September 2026, replacing one-email-per-row) - each
     row still gets its own rescue link, since a fix/discard action is
-    inherently per-row, but the digest itself is a single email."""
+    inherently per-row, but the digest itself is a single email.
+
+    owner_route (added 11 September 2026): when set, this call is building
+    the owner-specific copy (a subset of row_issues routed to Katie/Emily
+    by initials, alongside - not instead of - Peter's own full copy), so a
+    note is added explaining why. None means the original Peter's-copy
+    behaviour, unchanged."""
     count = len(row_issues)
     rejected_count = sum(1 for i in row_issues if i["category"] == "rejected")
     flagged_count = count - rejected_count
@@ -245,6 +251,13 @@ def build_row_issue_bundle_email(row_issues):
             "Some rows show '(link not configured)' - ROW_RESCUE_URL isn't set "
             "on this function yet. Those rows are tracked and won't be "
             "re-alerted once it is."
+        )
+
+    if owner_route:
+        body += email_style.muted_note(
+            "These were routed to you because each row's User Initials matched "
+            "yours. Peter also receives every row issue, including these, in "
+            "his own summary."
         )
 
     html = email_style.wrap_email("Hello,", body)
@@ -377,6 +390,47 @@ def resolve_route(pipeline, source_file, directory):
     route = directory.get(initials)
     if route is None:
         return "default", f"initials_not_in_directory:{initials}"
+
+    return route, f"initials:{initials}"
+
+
+def extract_row_initials(raw_row: dict):
+    """Row-level equivalent of extract_initials() above, but reading a
+    single already-parsed row (raw_row, as stored in films_pipeline_row_errors)
+    instead of re-downloading and re-parsing a whole CSV. Tensile's field is
+    the fixed key 'user_initials' (shared/tensile_parser.py); friction is
+    dynamic-schema and normalizes whatever the source header text was, so
+    this matches by substring the same way extract_initials() matches by
+    header-text substring. Extrusion never has an initials field at all
+    (per CLAUDE.md), so this naturally returns None for it."""
+    for key, value in raw_row.items():
+        if "user_initial" in key.lower():
+            text = str(value).strip() if value is not None else ""
+            if text:
+                return text.upper()
+    return None
+
+
+def resolve_row_owner_route(raw_row_json, directory):
+    """Row-issue counterpart to resolve_route() - same directory lookup,
+    but the row's own stored fields already have what's needed, so no GCS
+    re-read is involved. Returns (route, reason); route is None (not
+    'default') when no owner could be identified, since row-issue routing
+    is additive (Peter always gets everything via the existing bundle) -
+    unlike file failures there's no catch-all recipient to fall back to
+    here, just "no extra owner copy this time"."""
+    try:
+        raw_row = json.loads(raw_row_json) if raw_row_json else {}
+    except (TypeError, ValueError):
+        return None, "unparseable_raw_row"
+
+    initials = extract_row_initials(raw_row)
+    if not initials:
+        return None, "no_initials_column"
+
+    route = directory.get(initials)
+    if route is None:
+        return None, f"initials_not_in_directory:{initials}"
 
     return route, f"initials:{initials}"
 
@@ -620,6 +674,7 @@ def check_and_alert(request):
 
     row_issues = find_unalerted_row_issues(bq)
     row_alerted = 0
+    row_owner_alerted = 0
     if row_issues:
         subject, html = build_row_issue_bundle_email(row_issues)
         try:
@@ -631,6 +686,37 @@ def check_and_alert(request):
             # failed.
             print(f"ROW_ISSUE_BUNDLE_SEND_FAILED count={len(row_issues)} error={exc}")
         else:
+            # Owner copies (added 11 September 2026): additive to Peter's
+            # full bundle above, not a replacement - any row whose initials
+            # resolve to Katie or Emily via the same directory table the
+            # file-failure alert uses also goes to them, so both Peter and
+            # the row's owner see it, matching how Peter asked for this to
+            # work. Best-effort: a failed owner send doesn't block dedup
+            # below, since Peter's copy (the source of truth) already went
+            # out - worst case an owner misses a copy they can still see by
+            # asking Peter, rather than every row being re-alerted to
+            # everyone next hour because of one owner send failure.
+            owner_groups = {}
+            for issue in row_issues:
+                route, _reason = resolve_row_owner_route(issue["raw_row"], directory)
+                if route and route != "default":
+                    owner_groups.setdefault(route, []).append(issue)
+
+            for route, items in owner_groups.items():
+                recipient = ROUTE_EMAILS.get(route)
+                if not recipient:
+                    continue
+                owner_subject, owner_html = build_row_issue_bundle_email(items, owner_route=route)
+                try:
+                    owner_result = gmail_sender.send_html_email(PROJECT_ID, recipient, owner_subject, owner_html)
+                    print(
+                        f"ROW_ISSUE_OWNER_BUNDLE_SENT route={route} count={len(items)} "
+                        f"message_id={owner_result.get('id')}"
+                    )
+                    row_owner_alerted += len(items)
+                except Exception as exc:
+                    print(f"ROW_ISSUE_OWNER_BUNDLE_SEND_FAILED route={route} count={len(items)} error={exc}")
+
             try:
                 now = datetime.now(timezone.utc).isoformat()
                 errors = bq.insert_rows_json(
@@ -652,6 +738,7 @@ def check_and_alert(request):
         "escalations_bundled": len(escalation_items),
         "flagged_rows_inserted": flagged_inserted,
         "row_issues_checked": len(row_issues), "row_issues_alerted": row_alerted,
+        "row_issues_owner_alerted": row_owner_alerted,
     }
     print(f"ALERT_RUN_SUMMARY {json.dumps(summary)}")
     return summary

@@ -2365,6 +2365,71 @@ done, not waiting to be asked.
 
 ---
 
+### Row-issue emails now also route to the owner, not just Peter (11 September 2026)
+
+Peter reviewed the whole email/rescue flow ahead of Katie and Emily
+starting to use it and asked for one gap closed: the per-row flag/reject
+alert (built 8 September) went to peter@notpla.com only, unlike the
+per-file failure alert, which already routes to Katie/Emily by matching
+each file's User Initials against `films_pipeline_user_directory`.
+
+**Built**: `films-pipeline-failure-alerter/main.py` gained
+`extract_row_initials()` and `resolve_row_owner_route()` - the row-issue
+counterpart to the existing `extract_initials()`/`resolve_route()`, but
+reading the row's own already-stored `raw_row` field instead of
+re-downloading and re-parsing a whole file from GCS. Tensile's initials
+field is the fixed key `user_initials`; friction is dynamic-schema and
+normalizes whatever the source header text was (confirmed against real
+data: `user_initials_prompt_for_value_after_test`), so the match is by
+substring (`"user_initial" in key`) the same way the file-level version
+matches by header-text substring; extrusion never has this field at all,
+same as before. `check_and_alert()` now sends Peter's full bundle exactly
+as before (unchanged - he still sees every row issue), then additionally
+groups the same batch by resolved owner and sends Katie/Emily their own
+subset with the same rescue links, when identifiable. Additive, not a
+replacement: nothing changes for rows with no identifiable owner
+(extrusion, or a blank/unrecognized initials field), which is most rows
+today - see the finding below.
+
+**Verified**:
+- Offline: `extract_row_initials`/`resolve_row_owner_route` tested against
+  synthetic tensile/friction/extrusion-shaped rows, then against real open
+  row-errors pulled from BigQuery: all 41 summary-pipeline
+  (`tensile`/`friction`) rows, plus a 500-row sample of the much larger
+  raw-curve backlog (all 255 `friction_raw` open rows, plus the first 245
+  of 899 `tensile_raw` - `bq query`'s own row-limit capped the pull, not a
+  deliberate sample; the untested `tensile_raw` remainder is raw curve
+  data using the same parser/shape as what was tested, so not expected to
+  differ, but not literally checked row-for-row). Every row tested
+  resolved to "no initials" - real files mostly don't carry a filled-in
+  User Initials value - so the new owner-routing path has real-world
+  coverage of zero today, correctly, not a bug, but worth knowing: it's
+  dormant until initials start being filled in consistently.
+- Deployed via `scripts/deploy.sh films-pipeline-failure-alerter`
+  (revision `films-pipeline-failure-alerter-00015-roq`, confirmed serving
+  100% traffic via `gcloud run services describe`).
+- Live end-to-end: inserted one synthetic `open` row into
+  `films_pipeline_row_errors` (tensile, `user_initials = "KF"`, clearly
+  marked as a test in `reason`/`raw_row`) via a non-streaming `INSERT` (not
+  `insert_rows_json`) specifically so it could be deleted immediately after
+  without waiting out the streaming buffer, invoked the deployed function
+  directly, confirmed via Cloud Logging both `ROW_ISSUE_BUNDLE_SENT
+  count=1` (Peter) and `ROW_ISSUE_OWNER_BUNDLE_SENT route=katie count=1`
+  (Katie) with distinct Gmail message IDs, then deleted the synthetic row.
+  **This sent one real test email to katie@notpla.com** - Peter chose this
+  verification method knowing that, over a same-address-redirect or a
+  logs-only dry run (neither of which this codebase supports without a
+  temporary code change), and over asking Katie in advance. Worth
+  confirming with Katie separately if he wants her heads-up after the
+  fact, not before.
+
+**Not done / worth knowing**: the owner-routed copy is currently silent on
+which fraction of the total Peter also received are/aren't theirs beyond
+the row table itself - no aggregate "X of these are also going to Y"
+framing was added, same table format reused as-is for both copies.
+
+---
+
 ## Standing items
 
 - ~~Bucket versioning is Suspended. Any delete is permanent. Worth enabling.~~
